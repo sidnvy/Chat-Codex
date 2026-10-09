@@ -19,6 +19,6 @@ Verified on Linux using a non-root host user, Node v26.5.0, npm 12.0.1, Docker E
 
 Not verified: a fresh ChatGPT account/workspace and live Secure MCP Tunnel; macOS/Windows/rootless mappings; clean host Node 22 installation; hostile-kernel/container-escape resistance. Container execution uses Node 22, but the host SDK server was tested with Node 26. New account access, plugin installation and tunnel credentials remain user-owned setup steps.
 
-One final integration invocation initially used the parent directory and failed before tests (missing package.json); rerun from this repository passed all 26 assertions. No production checkout/services/authentication/configuration were changed. No public repository or remote publication was created.
+One final integration invocation initially used the parent directory and failed before tests (missing package.json); rerun from this repository passed all 26 assertions. No production checkout/services/authentication/configuration were changed. That implementation validation preceded the separately authorized public-source publication.
 
 Known limits: one operator/project, serialized calls, offline execution, no PTY/background service, maximum 60 seconds per command. Project disk use is not quota-limited; use a disposable/quota-managed filesystem for untrusted large writes. Unexpected gateway SIGKILL/host crash can leave containers; documented manual inspection/cleanup is required. The Docker-capable gateway itself is trusted host code, not sandboxed against a hostile local user.

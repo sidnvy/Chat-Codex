@@ -21,7 +21,12 @@
 
 ## 1. 取得源码并安装
 
-仓库尚未公开发布；收到 ZIP 时解压后 `cd Chat-Codex`。日后发布后，先 `git clone <维护者确认的仓库URL>`，再进入 checkout；不要使用猜测的 GitHub 地址。
+```sh
+git clone https://github.com/sidnvy/Chat-Codex.git
+cd Chat-Codex
+```
+
+收到源码 ZIP 时也可解压后 `cd Chat-Codex`。
 
 **后续所有 npm 命令都在这个 checkout 中运行。** 项目数据和凭据放在它外面：
 
@@ -85,7 +90,7 @@ curl -s -o /dev/null -w '%{http_code}\n' \
 npm run test:integration
 ```
 
-这不是 mock。测试启动真实 SDK HTTP MCP server、通过认证的官方 MCP Client，调用真实 Docker runner：写入 add 函数 → 读回 → 测试失败（exit 1）→ edit_file 修复 → 测试通过（exit 0）。还检查缺失/错误 token、Origin、目录/符号链接越界、凭据及 socket 不可见、只读系统、禁网、命令超时、输出限额、容器清理。正常结束删除临时 fixtures。当前通过证据见 `VALIDATION.md`。
+这不是 mock。测试启动真实 SDK HTTP MCP server、通过认证的官方 MCP Client，调用真实 Docker runner：写入 add 函数 → 读回 → 测试失败（exit 1）→ edit_file 修复 → 测试通过（exit 0）。还检查缺失/错误 token、Origin、目录/符号链接越界、凭据及 socket 不可见、只读系统、禁网、命令超时、输出限额、容器清理。正常结束删除临时 fixtures。当前 26 项本地集成检查通过，证据见 `VALIDATION.md`。
 
 **本地通过不等于已经连接你的 ChatGPT 账号。** 后续隧道和插件步骤需要你自己的权限与在线验收。
 
