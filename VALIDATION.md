@@ -22,3 +22,14 @@ Not verified: a fresh ChatGPT account/workspace and live Secure MCP Tunnel; macO
 One final integration invocation initially used the parent directory and failed before tests (missing package.json); rerun from this repository passed all 26 assertions. No production checkout/services/authentication/configuration were changed. That implementation validation preceded the separately authorized public-source publication.
 
 Known limits: one operator/project, serialized calls, offline execution, no PTY/background service, maximum 60 seconds per command. Project disk use is not quota-limited; use a disposable/quota-managed filesystem for untrusted large writes. Unexpected gateway SIGKILL/host crash can leave containers; documented manual inspection/cleanup is required. The Docker-capable gateway itself is trusted host code, not sandboxed against a hostile local user.
+
+## Explicit host backend change — local verification
+
+Docker remains the default when `backend` is omitted. `backend: "host"` opts into execution as the current OS user, without an OS sandbox. No automatic fallback exists. Linux/non-root only; no macOS or Windows host-mode claims.
+
+- `npm test`: 4 tests passed, covering unchanged Docker constraints, default/explicit/invalid selection, invalid setup before directory creation, host setup with empty PATH (no Docker), temporary HOME cleanup, normal background descendants, timeout/output-limit descendants, and Docker failure without host fallback.
+- `npm run test:host`: 25 assertions passed through a real authenticated HTTP MCP client/server and local processes; write/read/list/edit, red exit 1 → green exit 0, path/symlink checks, minimal environment, timeout/output bound, nonzero stderr and serialization.
+- `npm run test:integration`: all 26 Docker assertions passed; the generated config's backend field was removed before server startup to verify compatibility with old configs.
+- Test work used disposable directories and generated temporary test tokens, with no production services or account grants. The initial restricted test invocation could not spawn Node (`EPERM`); rerunning the authorized tests with subprocess/Docker access passed.
+- Host execution does not have Docker filesystem/network/resource isolation. Process-group cleanup handles ordinary descendants; deliberate session escape, OS service launchers, gateway SIGKILL and host crashes can leave processes. These are documented limitations, not a native sandbox claim.
+- Fresh ChatGPT account/workspace and live Secure MCP Tunnel remain untested. This change does not alter tunnel setup or account authorization.
