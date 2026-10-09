@@ -1,0 +1,11 @@
+{
+  "name": "chat-codex",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Private MCP coding tools with an ephemeral isolated Docker runner",
+  "type": "module",
+  "license": "MIT",
+  "engines": {"node": ">=22"},
+  "scripts": {"start": "node src/server.mjs", "setup": "node scripts/setup.mjs", "test": "node --test test/*.test.mjs", "test:integration": "node test/integration.mjs"},
+  "dependencies": {"@modelcontextprotocol/sdk": "1.30.1", "zod": "4.4.3"}
+}
