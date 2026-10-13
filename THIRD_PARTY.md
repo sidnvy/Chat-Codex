@@ -1,5 +1,7 @@
 # Third-party dependency declarations
 
+Chat-Codex remains MIT. Official Agent Plugins 1.0.0 JSON Schema snapshots in `schemas/plugin.schema.json` and `schemas/mcp.schema.json` are third-party **Apache-2.0**, not MIT. Their provenance and original license are documented in [docs/SCHEMA-NOTICE.md](docs/SCHEMA-NOTICE.md). The npm lockfile is retained; `ajv` is a development-only JSON Schema validator, declared MIT. This is an inventory and attribution, not a complete dependency legal audit.
+
 Generated from the committed npm lockfile. This is a declaration inventory, not a legal audit. Dependencies are fetched from the public npm registry; install scripts are disabled. Original Chat-Codex code is MIT; no private or third-party example implementation is copied. Node container image is not redistributed by this archive and has separate bundled software notices.
 
 | Package | Version | Declared license |
