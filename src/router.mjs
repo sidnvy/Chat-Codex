@@ -12,11 +12,12 @@ export class TargetRouter {
   }
  }
  resolve(target){return resolveTarget(this.registry,target);}
- hostsList(){return [...this.registry.hosts.values()].map(h=>({id:h.id,project:h.project,connection:'connected',unsandboxed:true}));}
+ hostCapabilities(h){return {exec:{enabled:true},filesystem:{enabled:true},desktop:{enabled:Boolean(h.capabilities?.desktop?.enabled),...(h.capabilities?.desktop?.driver?{driver:h.capabilities.desktop.driver}:{})}};}
+ hostsList(){return [...this.registry.hosts.values()].map(h=>({id:h.id,project:h.project,connection:'connected',unsandboxed:true,capabilities:this.hostCapabilities(h)}));}
  projectsList(){return listProjects(this.registry);}
  async status(target){
   const {entry,project}=this.resolve(target);
-  if(target.kind==='host')return {id:entry.id,kind:'host',connection:'connected',ready:true,unsandboxed:true,project:entry.project};
+  if(target.kind==='host')return {id:entry.id,kind:'host',connection:'connected',ready:true,unsandboxed:true,project:entry.project,capabilities:this.hostCapabilities(entry)};
   return {kind:'environment',...await this.docker.status(entry,project)};
  }
  async environmentsList(){

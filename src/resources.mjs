@@ -3,6 +3,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {z} from 'zod';
 import {validateHost} from './backends.mjs';
+import {desktopConfigSchema} from './desktop/contract.mjs';
 
 export const idSchema=z.string().regex(/^[a-z][a-z0-9-]{0,62}$/);
 export const targetSchema=z.object({kind:z.enum(['host','environment']),id:idSchema}).strict();
@@ -10,7 +11,7 @@ export const pathSchema=z.string().min(1).max(1024).refine(s=>!s.includes('\0')&
 export const commandSchema=z.string().min(1).max(8192);
 export const timeoutSchema=z.number().int().min(1000).max(300000).default(15000);
 const projectSchema=z.object({id:idSchema,path:z.string().min(1)}).strict();
-const hostSchema=z.object({id:idSchema,project:idSchema,enabled:z.literal(true),connection:z.literal('local'),unsandboxed:z.literal(true)}).strict();
+const hostSchema=z.object({id:idSchema,project:idSchema,enabled:z.literal(true),connection:z.literal('local'),unsandboxed:z.literal(true),capabilities:z.object({desktop:desktopConfigSchema.optional()}).strict().optional()}).strict();
 const environmentSchema=z.object({id:idSchema,project:idSchema,provider:z.literal('docker')}).strict();
 const dockerSchema=z.object({user:z.string().regex(/^[1-9][0-9]*:[0-9]+$/),image:z.string().regex(/^node:[a-zA-Z0-9_.-]+@sha256:[a-f0-9]{64}$/)}).strict();
 const configSchema=z.object({

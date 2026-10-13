@@ -10,6 +10,8 @@ import {createRegistry,idSchema,targetSchema,pathSchema,commandSchema,timeoutSch
 import {TargetRouter} from './router.mjs';
 import {TaskManager} from './tasks.mjs';
 import {searchResources} from './mentions.mjs';
+import {DesktopManager} from './desktop/manager.mjs';
+import {desktopObserveSchema,desktopActSchema,desktopWaitSchema} from './desktop/contract.mjs';
 
 const empty=z.object({}).strict();
 const targetArgs=targetSchema;
@@ -53,11 +55,12 @@ function renderHtml(template,s){
  .replace('<!--TASKS-->',items(s.tasks,t=>row(t.id,t.status+' � '+t.target.kind+':'+t.target.id)))
  .replace('<!--EXECUTIONS-->',items(s.executions,e=>row(e.id,e.kind+' � '+e.op+' � exit '+(e.exit_code??'unknown')+(e.termination?' ('+e.termination+')':''))));
 }
-export async function start(configFile){
+export async function start(configFile,{desktopCatalog}={}){
  const raw=JSON.parse(await fs.readFile(configFile,'utf8'));
  const registry=await createRegistry(raw,configFile);
  const router=new TargetRouter(registry);
  const tasks=await new TaskManager(router).init();
+ const desktops=new DesktopManager(registry,desktopCatalog?{catalog:desktopCatalog}:{});
  const port=registry.config.port,privateDir=registry.privateDir;
  const tokenFile=path.join(privateDir,'token');
  const st=await fs.lstat(tokenFile);
@@ -67,7 +70,7 @@ export async function start(configFile){
  const digest=crypto.createHash('sha256').update('Bearer '+token).digest();
  const appTemplate=await fs.readFile(new URL('../app/home.html',import.meta.url),'utf8');
  function protocol(){
-  const mcp=new McpServer({name:'Chat-Codex',version:'0.2.0'});
+  const mcp=new McpServer({name:'Chat-Codex',version:'0.3.0'});
   mcp.server.registerCapabilities({experimental:{'openai/mentions':{searchTool:'resource_search'}}});
   const register=(name,description,schema,fn,read=false,meta)=>mcp.registerTool(name,{
    description,inputSchema:schema,annotations:{readOnlyHint:read,destructiveHint:!read,idempotentHint:read},
@@ -98,6 +101,23 @@ export async function start(configFile){
    return p;
   },true);
   register('target_status','Status of an explicitly typed registered Host or Environment.',z.object({target:targetArgs}).strict(),a=>router.status(a.target),true);
+  register('target_desktop_status','Read Desktop readiness separately from Host connection.',z.object({target:targetArgs}).strict(),a=>desktops.status(a.target),true);
+  mcp.registerTool('target_desktop_observe',{
+   description:'Read windows or capture an exact active window and mint a short-lived target-bound screenshot. Images are ephemeral.',
+   inputSchema:desktopObserveSchema,annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true}
+  },async a=>{
+   try{
+    const observed=await desktops.observe(a);
+    const {image,...result}=observed;
+    return {content:[{type:'text',text:JSON.stringify(result)},...(image?[{type:'image',data:image.data,mimeType:image.mimeType}]:[])],structuredContent:result};
+   }catch(e){return failed(e);}
+  });
+  register('target_desktop_act','Execute a single action against a fresh target-bound Desktop snapshot.',desktopActSchema,a=>desktops.act(a));
+  mcp.registerTool('target_desktop_wait',{description:'Wait for an exact window title with a bounded timeout.',inputSchema:desktopWaitSchema,annotations:{readOnlyHint:true,destructiveHint:false}},async a=>{
+   try{const result=await desktops.wait(a);return {...show(result),isError:!result.matched};}
+   catch(e){return failed(e);}
+  });
+
   const execTool=(name,description,schema,op,transform,read=false)=>{
    mcp.registerTool(name,{description,inputSchema:schema,annotations:{readOnlyHint:read,destructiveHint:!read,idempotentHint:read}},async a=>{
     try{return await execResult(a,op,transform(a));}catch(e){return failed(e);}

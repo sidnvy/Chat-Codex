@@ -1,0 +1,122 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {desktopActionSchema,desktopObserveSchema,desktopActSchema,verifyDesktopDriver,DesktopError} from '../src/desktop/contract.mjs';
+import {DesktopManager} from '../src/desktop/manager.mjs';
+import {HyprlandDesktop} from '../src/desktop/hyprland.mjs';
+import {PeekabooDesktop} from '../src/desktop/peekaboo.mjs';
+import {WinappDesktop} from '../src/desktop/winapp.mjs';
+
+const host={kind:'host',id:'desktop-host'},environment={kind:'environment',id:'dev'};
+const registry=()=>({
+ projects:new Map([['default',{id:'default',path:'/tmp/test'}]]),
+ hosts:new Map([['desktop-host',{id:'desktop-host',project:'default',capabilities:{desktop:{enabled:true,driver:'hyprland'}}}]]),
+ environments:new Map([['dev',{id:'dev',project:'default',provider:'docker'}]])
+});
+test('desktop contract requires strict target, snapshot and single well-typed action',()=>{
+ for(const a of [
+  {target:{kind:'host',id:'desktop-host',provider:'ssh'},mode:'windows'},
+  {target:{kind:'host',id:'desktop-host'},mode:'window'},
+  {target:{kind:'host',id:'desktop-host'},mode:'windows',window_id:'fake'},
+  {target:{kind:'host',id:'desktop-host'},mode:'window',window_id:'w',workspace:'/'}
+ ])assert.equal(desktopObserveSchema.safeParse(a).success,false);
+ assert.equal(desktopActionSchema.safeParse({type:'type',text:'hello',shell:'whoami'}).success,false);
+ assert.equal(desktopActionSchema.safeParse({type:'click',x:-1,y:0}).success,false);
+ assert.equal(desktopActSchema.safeParse({target:host,snapshot_id:'latest',action:{type:'key',key:'Return'}}).success,false);
+ assert.throws(()=>verifyDesktopDriver({status(){}}),/missing observe/);
+});
+
+test('desktop registry enforces explicit capability and target matching before IO',async()=>{
+ let called=0,now=1234567;
+ const fake={
+  async status(){called++;return {driver:'hyprland',state:'ready',ready:true,capabilities:['windows']};},
+  async observe(input){called++;return input.mode==='windows'?
+   {driver:'hyprland',windows:[{id:'w1',title:'Scratch'}]}:
+   {driver:'hyprland',window:{id:'w1',title:'Scratch'},receipt:{window_id:'w1'},image:{mimeType:'image/png',data:'QUJD'}};},
+  async act(receipt,action){called++;return {outcome:'dispatched_unverified',verified:false,action_type:action.type};}
+ };
+ const d=new DesktopManager(registry(),{driverFactory:()=>fake,clock:()=>now});
+ await assert.rejects(d.observe({target:environment,mode:'windows'}),/not enabled/);
+ await assert.rejects(d.observe({target:{kind:'host',id:'unknown'},mode:'windows'}),/Unknown registered/);
+ assert.equal(called,0,'invalid/admitted but not-enabled targets never reach backend');
+ assert.equal((await d.status(host)).ready,true);
+ assert.equal((await d.observe({target:host,mode:'windows'})).windows[0].title,'Scratch');
+ const x=await d.observe({target:host,mode:'window',window_id:'w1'});
+ assert.ok(x.snapshot_id&&x.image.data==='QUJD');
+ await assert.rejects(d.act({target:environment,snapshot_id:x.snapshot_id,action:{type:'key',key:'Return'}}),/not enabled/);
+ const a=await d.act({target:host,snapshot_id:x.snapshot_id,action:{type:'type',text:'probe'}});
+ assert.equal(a.verified,false);
+ await assert.rejects(d.act({target:host,snapshot_id:x.snapshot_id,action:{type:'type',text:'replay'}}),/Unknown|Snapshot/);
+ const y=await d.observe({target:host,mode:'window',window_id:'w1'});
+ now+=31000;
+ await assert.rejects(d.act({target:host,snapshot_id:y.snapshot_id,action:{type:'type',text:'late'}}),/expired/);
+ const w=await d.wait({target:host,condition:{type:'window_present',title:'Scratch'},timeout_ms:100});
+ assert.equal(w.matched,true);
+});
+
+test('Hyprland native adapter uses JSON IPC and dispatches only focused fingerprint',async()=>{
+ const calls=[],geometry={x:100,y:200,width:400,height:300};
+ let moved=false;
+ const run=async(cmd,args)=>{
+  calls.push([cmd,...args]);
+  if(cmd==='hyprctl'){
+   if(args[1]==='monitors')return JSON.stringify([{name:'HEADLESS-1',width:1920,height:1080}]);
+   if(args[1]==='locked')return JSON.stringify({locked:false});
+   if(args[1]==='clients')return JSON.stringify([{address:'0x123',class:'zenity',title:'Scratch',at:[100,200],size:[400,300],workspace:{name:'98'},mapped:true}]);
+   if(args[1]==='activewindow')return JSON.stringify({address:'0x123',title:moved?'Other':'Scratch',at:[100,200],size:[400,300]});
+  }
+  return '';
+ };
+ const d=new HyprlandDesktop(run);
+ assert.equal((await d.status()).ready,true);
+ const windows=await d.observe({mode:'windows'});
+ assert.equal(windows.windows[0].geometry.width,400);
+ const receipt={window_id:'0x123',title:'Scratch',geometry};
+ await d.act(receipt,{type:'type',text:'hello'});
+ assert.ok(calls.some(x=>x[0]==='wtype'&&x.includes('hello')));
+ await d.act(receipt,{type:'click',x:5,y:6});
+ assert.ok(calls.some(x=>x[0]==='ydotool'&&x.includes('mousemove')));
+ await assert.rejects(d.act(receipt,{type:'click',x:900,y:0}),/inside captured window/);
+ moved=true;
+ await assert.rejects(d.act(receipt,{type:'key',key:'Return'}),/Window identity/);
+});
+
+test('macOS Peekaboo adapter is permission-gated and receipt-pinned',async()=>{
+ let granted=false;
+ const calls=[];
+ const run=async(bin,args)=>{
+  calls.push([bin,...args]);
+  if(args[0]==='permissions')return JSON.stringify({success:true,data:{permissions:[
+   {name:'Screen Recording',isGranted:granted},{name:'Accessibility',isGranted:granted}
+  ]}});
+  if(args[0]==='see')return JSON.stringify({success:true,data:{snapshot_id:'pb-snap',window_title:'Calculator',ui_elements:[{id:'B7',role:'button',label:'7'}]}});
+  return JSON.stringify({success:true,data:{}});
+ };
+ const d=new PeekabooDesktop(run);
+ assert.equal((await d.status()).state,'permission_denied');
+ granted=true;
+ assert.equal((await d.status()).ready,true);
+ const s=await d.observe({mode:'window',window_id:'Calculator'});
+ assert.equal(s.receipt.snapshot_id,'pb-snap');
+ assert.equal(s.elements[0].id,'B7');
+ await d.act(s.receipt,{type:'invoke',element_id:'B7'});
+ assert.ok(calls.some(x=>x.includes('--snapshot')&&x.includes('pb-snap')));
+});
+
+test('Windows UI Automation adapter never equates SSH execution with interactive input readiness',async()=>{
+ let interactive=false;
+ const commands=[];
+ const run=async(cmd,args)=>{
+  commands.push([cmd,...args]);
+  if(args[1]==='list-windows')return JSON.stringify({windows:[{id:'n',title:'Notepad',app:'notepad'}]});
+  if(args[1]==='inspect')return JSON.stringify({elements:[{id:'save'}]});
+  return '{}';
+ };
+ const d=new WinappDesktop(run,async()=>interactive);
+ assert.equal((await d.status()).state,'session_unverified');
+ await assert.rejects(d.act({app:'notepad',observed_at:Date.now()},{type:'invoke',element_id:'save'}),/Interactive desktop/);
+ interactive=true;
+ assert.equal((await d.status()).ready,true);
+ const s=await d.observe({mode:'window',window_id:'notepad'});
+ await d.act(s.receipt,{type:'invoke',element_id:'save'});
+ assert.ok(commands.some(x=>x.includes('invoke')&&x.includes('save')));
+});
