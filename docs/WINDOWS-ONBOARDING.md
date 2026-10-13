@@ -27,3 +27,20 @@ References:
 - https://learn.microsoft.com/windows/apps/dev-tools/winapp-cli/ui-automation
 
 Chat-Codex v0.2 Host Runner remains Linux-only; the Windows UIA adapter is not a proven native Windows Host implementation and requires a session-local Broker and real acceptance.
+## WinApp JSON and exact HWND targeting
+
+The WinApp CLI can return a top-level array for `ui list-windows --json`.
+The adapter preserves each valid numeric `hwnd`, rather than converting the
+window title or process ID into its identity. An exact HWND from the immediately
+preceding discovery is required before window observation. `ui inspect`,
+`ui invoke`, and `ui set-value` use the WinApp `-w <HWND>` selector rather
+than `-a` (the latter may select a different process or similarly titled
+window). For `inspect --json`, element selectors are read from the matching
+`windows[].elements` envelope, with bounded output and a single-window
+fallback for older scoped payloads.
+
+Before an action the driver verifies that the HWND still exists, and rejects
+changes to an observed process identity when the PID is reported. Stale
+snapshots and unavailable interactive sessions are refused. This is contract
+coverage with synthetic WinApp responses, **not** actual Windows/NAB5
+GUI acceptance.

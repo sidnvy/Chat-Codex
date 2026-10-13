@@ -107,16 +107,20 @@ test('Windows UI Automation adapter never equates SSH execution with interactive
  const commands=[];
  const run=async(cmd,args)=>{
   commands.push([cmd,...args]);
-  if(args[1]==='list-windows')return JSON.stringify({windows:[{id:'n',title:'Notepad',app:'notepad'}]});
-  if(args[1]==='inspect')return JSON.stringify({elements:[{id:'save'}]});
+  if(args[1]==='list-windows')return JSON.stringify([{hwnd:44221,title:'Notepad',processName:'notepad',pid:1234}]);
+  if(args[1]==='inspect')return JSON.stringify({windows:[{hwnd:44221,elements:[{selector:'save',type:'Button',name:'Save'}]}]});
   return '{}';
  };
  const d=new WinappDesktop(run,async()=>interactive);
  assert.equal((await d.status()).state,'session_unverified');
- await assert.rejects(d.act({app:'notepad',observed_at:Date.now()},{type:'invoke',element_id:'save'}),/Interactive desktop/);
+ await assert.rejects(d.act({hwnd:'44221',observed_at:Date.now()},{type:'invoke',element_id:'save'}),/Interactive desktop/);
  interactive=true;
  assert.equal((await d.status()).ready,true);
- const s=await d.observe({mode:'window',window_id:'notepad'});
- await d.act(s.receipt,{type:'invoke',element_id:'save'});
- assert.ok(commands.some(x=>x.includes('invoke')&&x.includes('save')));
+ const windows=await d.observe({mode:'windows'});
+ assert.equal(windows.windows[0].id,'44221');
+ const observed=await d.observe({mode:'window',window_id:'44221'});
+ assert.equal(observed.elements[0].id,'save');
+ await d.act(observed.receipt,{type:'invoke',element_id:'save'});
+ assert.ok(commands.some(x=>x.includes('invoke')&&x.includes('save')&&x.includes('-w')&&x.includes('44221')));
+ assert.ok(!commands.some(x=>x.includes('-a')));
 });
