@@ -1,35 +1,71 @@
-# Validation — 2026-10-09
+# Chat-Codex v0.2 validation  2026-10-13
 
-This repository is independently written. No Charon/Coder source or external example implementation is required or copied.
+The following evidence is from actual commands run through the connected Charon 4 Typed API on M600 Workstation. It is not an OpenAI account or ChatGPT Desktop acceptance report.
 
-Verified on Linux using a non-root host user, Node v26.5.0, npm 12.0.1, Docker Engine 29.6.2 and the locally available official node:22-bookworm-slim image. The integration test ran setup.mjs, which resolved the image digest, generated temporary credentials and configured separate temporary project/private directories.
+## Execution provenance
 
-- `npm install --ignore-scripts --no-audit --no-fund`: installed the exact direct dependencies; generated committed npm lockfile (94 transitive/install entries).
-- `npm test`: 1 runner configuration test passed.
-- `node --check`: server, runner, worker, setup passed.
-- `npm run test:integration`: **26 assertions passed**, real HTTP MCP server, official SDK client and actual Docker containers. No mock gateway/backend.
-- Read/list/write → deliberately failing Node test (exit 1) → exact edit → passing test (exit 0).
-- Authentication missing/wrong token and Origin rejection.
-- File traversal and symlink traversal rejection.
-- Non-root execution, host credentials/Docker socket absent, read-only container root, external TCP connection unavailable.
-- Timeout and 64 KiB output limit terminate containers; stderr and nonzero exit propagation verified.
-- Missing edit match and concurrent operation rejected.
-- All test containers cleaned up; temporary project and credential directories removed.
-- Inspected the existing official tunnel-client v0.0.14 `run --help` in an offline disposable container. Documented run flags are present. No runtime key, tunnel identity, account connection or persistent auth grant was created.
+- GitHub upstream: `sidnvy/Chat-Codex`, base `main` commit `67530880134e4956f5d091e4072b5cf38e999747` (2026-10-09). Feature worktree under `/home/sid/Developer/Playground/chat-codex-resource-vnext`, isolated from the clean original Checkout.
+- Workstation: Linux non-root user UID/GID 1000; Docker Engine 29.6.2.
+- Build/test/dependency installation: trusted Docker dev container `chat-codex-resource-dev`, `node:22-bookworm-slim`, Node.js 22.23.3, npm 10.9.9. It alone has explicit Docker daemon access to exercise a real local Docker backend.
+- Test data: separate, temporary host-identical bind-mounted path outside the source tree; integration fixtures, tokens and runtime containers removed after tests. The ordinary Chat-Codex Environment does **not** mount the Docker socket or Host HOME.
+- Original base unit suite: 4/4 passing before implementation.
 
-Not verified: a fresh ChatGPT account/workspace and live Secure MCP Tunnel; macOS/Windows/rootless mappings; clean host Node 22 installation; hostile-kernel/container-escape resistance. Container execution uses Node 22, but the host SDK server was tested with Node 26. New account access, plugin installation and tunnel credentials remain user-owned setup steps.
+## Actual M1/M2/M4 results
 
-One final integration invocation initially used the parent directory and failed before tests (missing package.json); rerun from this repository passed all 26 assertions. No production checkout/services/authentication/configuration were changed. That implementation validation preceded the separately authorized public-source publication.
+`npm run test:integration` exercised an authenticated, loopback real MCP Streamable HTTP server with the official MCP SDK HTTP Client, and both actual Local Host and Docker Environment backends. The latest execution passed **120 assertions** with output:
 
-Known limits: one operator/project, serialized calls, offline execution, no PTY/background service, maximum 60 seconds per command. Project disk use is not quota-limited; use a disposable/quota-managed filesystem for untrusted large writes. Unexpected gateway SIGKILL/host crash can leave containers; documented manual inspection/cleanup is required. The Docker-capable gateway itself is trusted host code, not sandboxed against a hostile local user.
+~~~
+{"passed":true,"assertions":120,"real_docker":true,"real_http":true,"host":true,"mentions":true,"app_resource":true,"chatgpt_desktop_tested":false,"provider":"docker","runtime_identity_stable":true}
+~~~
 
-## Explicit host backend change — local verification
+Verified:
+- All redesigned tools discovered through `tools/list`, strict JSON Schema, old tools absent.
+- Host status connected and Host lifecycle attempts refused.
+- Bad kind, unknown id, injected workspace/provider fields refused before backend IO.
+- Real Docker absent -> created -> running -> stopped -> restarted -> deleted, with retained Project file contents and same Docker container ID during multiple exec calls.
+- Identical `target_exec` on explicitly admitted Local Host and Docker Environment.
+- Red test exit 1 -> single-file unified patch -> green test exit 0.
+- Relative file reads/writes/list, traversal and symlink escaping refusal.
+- Non-root Environment, no Docker socket, no secrets/HOME mount, read-only root, disabled network; Docker ownership labels, image and security settings re-inspected before operations.
+- Exit code 7, stderr preservation, timeout and stdout limit; bounded execution forces Environment to stopped state, rather than assuming a container child was killed.
+- Start/poll/stop/list task receipts and honest completed/cancelled/unknown classifications.
+- No Docker-to-Host fallback after Environment deletion.
+- Search resources returns canonical typed `resource_link`, bounded Project file mention search excludes `.env`.
+- MCP App Home resource served through authenticated `resources/read`; recent synchronous execution metadata as well as task receipts is present.
 
-Docker remains the default when `backend` is omitted. `backend: "host"` opts into execution as the current OS user, without an OS sandbox. No automatic fallback exists. Linux/non-root only; no macOS or Windows host-mode claims.
+The standalone provider-contract suite checks future provider interface and lifecycle semantics without providing a fake PVE backend. Host-only tests run with setup invoked using an empty PATH to prove Docker is not required for Local Host mode; persisted in-flight tasks become `lost` when a gateway is restarted.
 
-- `npm test`: 4 tests passed, covering unchanged Docker constraints, default/explicit/invalid selection, invalid setup before directory creation, host setup with empty PATH (no Docker), temporary HOME cleanup, normal background descendants, timeout/output-limit descendants, and Docker failure without host fallback.
-- `npm run test:host`: 25 assertions passed through a real authenticated HTTP MCP client/server and local processes; write/read/list/edit, red exit 1 → green exit 0, path/symlink checks, minimal environment, timeout/output bound, nonzero stderr and serialization.
-- `npm run test:integration`: all 26 Docker assertions passed; the generated config's backend field was removed before server startup to verify compatibility with old configs.
-- Test work used disposable directories and generated temporary test tokens, with no production services or account grants. The initial restricted test invocation could not spawn Node (`EPERM`); rerunning the authorized tests with subprocess/Docker access passed.
-- Host execution does not have Docker filesystem/network/resource isolation. Process-group cleanup handles ordinary descendants; deliberate session escape, OS service launchers, gateway SIGKILL and host crashes can leave processes. These are documented limitations, not a native sandbox claim.
-- Fresh ChatGPT account/workspace and live Secure MCP Tunnel remain untested. This change does not alter tunnel setup or account authorization.
+## Actual M3 independent container results
+
+An independently created, disposable acceptance container was launched from the trusted Workstation Docker daemon with **no Docker socket**, **no network**, **read-only root**, non-root user and all Linux capabilities dropped. Its source mount was read-only. It ran:
+
+~~~
+node --test test/extensions.test.mjs test/plugin.test.mjs
+~~~
+
+**3/3 tests passed**, including a real MCP HTTP Client and read-only resource search/Home discovery/metadata contract. Portable Agent Plugin manifest and MCP configuration passed offline validation against bundled snapshots of both **official Agent Plugins 1.0.0 JSON Schemas**. The root manifest does not use a nonstandard `skills` field. The Home resource was read over real MCP HTTP.
+
+This validates wire contracts, metadata and rendered HTML resource delivery; it does **not** prove that a real ChatGPT account recognizes, installs or renders that app.
+
+## Actual vs contract-only vs installer steps
+
+| Component | Status | Evidence / remaining action |
+|---|---|---|
+| Typed Registry, Target Router, strict schemas | Implemented and unit/HTTP tested | Invalid identity rejected before backend IO |
+| Local Linux Host | Implemented and exercised | Explicit opt-in, non-root, **unsandboxed** |
+| Docker Environment Provisioner | Implemented and exercised | Real local daemon, true lifecycle, project retention |
+| Task receipts | Implemented and tested | Async completed/cancelled; lost on synthetic server recovery |
+| Composer Mention tool | Implemented and protocol tested | App-only read-only search, canonical link |
+| Portable Agent Plugin and three Skills | Implemented and offline/schema tested | Installer replaces placeholder endpoint and configures token |
+| Minimal Home MCP App | Implemented and protocol tested | Real `resources/read` HTML; live Desktop rendering not verified |
+| PVE/Firecracker/other Provider | **Contract-only** | No live backend, VM provisioning or model tool |
+| Actual ChatGPT Desktop / Tunnel / plugin installation | **Not tested** | Needs a real authorized client and operator registration |
+| Hosted GitHub Actions CI | **Not yet independently verified by this document** | Inspect PR check runs after pushing |
+
+## Trust boundaries and limitations
+
+The Docker control server has daemon-level authority and is a trusted component. Ordinary Environments cannot access its socket, but Docker isolation is not a hardened VM security guarantee. Project data is writable and not disk-quota-limited. Host execution is unsandboxed: shell commands can access same-user credentials, filesystem and network regardless of file API path checks. File tools are not an OS sandbox and are subject to host filesystem race conditions; use a dedicated trusted Project, not one containing secrets.
+
+A gateway kill or Docker daemon failure can leave owned containers or unknown task state requiring operator inspection. No automatic fallback to Host is implemented. Concurrent user changes or mixed-version servers sharing one Environment are outside the single-user v0.2 design. Projects cannot overlap. No image or dependency is downloaded by tool execution; setup inspects a reviewed local pinned image.
+
+Neither the private Charon implementation nor its credentials, personal deployment assets, tunnels or production configs were imported. The original Workstation Checkout and existing Charon services were not modified.

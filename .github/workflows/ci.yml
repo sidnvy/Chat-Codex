@@ -1,0 +1,45 @@
+name: Chat-Codex CI
+on:
+  push:
+  pull_request:
+jobs:
+  unit-and-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm test
+  docker-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: docker pull node:22-bookworm-slim
+      - run: npm run test:integration
+  plugin-extensions-isolated:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: docker pull node:22-bookworm-slim
+      - name: Real MCP Extensions protocol in isolated disposable container
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" \
+            --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --pids-limit 128 --memory 512m \
+            --mount "type=bind,src=$PWD,dst=/workspace,readonly" \
+            --tmpfs /tmp:rw,nosuid,nodev,size=128m,mode=1777 \
+            --workdir /workspace node:22-bookworm-slim \
+            node --test test/extensions.test.mjs test/plugin.test.mjs
