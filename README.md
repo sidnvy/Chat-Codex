@@ -107,6 +107,16 @@ Direct `@resource-name` typing is not a guaranteed trigger. Composer Mentions cu
 
 `chat_codex_home` is a minimal read-only MCP App Home and Conversation Panel with Projects, Hosts, Environments, recent execution results and task receipts. The `ui://chat-codex/home` resource is served as `text/html;profile=mcp-app`.
 
+## Experimental Desktop Capability
+
+Host Desktop is independent of Coder/SSH/WinRM command connectivity. The four APIs are target_desktop_status, target_desktop_observe, target_desktop_act and target_desktop_wait. Desktop is disabled by default. Trusted administrators may opt in a Local Linux Host with capabilities: {"desktop":{"enabled":true,"driver":"hyprland"}}. An Environment cannot inherit the Host GUI.
+
+Observe supports bounded window metadata and ephemeral exact-window screenshots (2 MiB max) with target-bound, one-use snapshots expiring in 30 seconds. Act returns verified:false until an independent observation proves the expected UI state.
+
+Linux Hyprland is the first live-tested backend. Peekaboo macOS and Microsoft winapp Windows are provisional adapters with unit-tested contracts only; they need real permissions and interactive user-session acceptance. The current Host Runner remains Linux-only.
+
+See [Desktop Capability ADR](docs/DESKTOP-CAPABILITY.md) and [generic Windows preflight](docs/WINDOWS-ONBOARDING.md).
+
 ## Portable Agent Plugin
 
 Root [`plugin.json`](plugin.json), [`mcp.json`](mcp.json) and [`skills/`](skills/) follow Agent Plugins 1.0.0. The root manifest intentionally has no nonstandard top-level `skills` or `mcpServers` field. Offline tests validate against bundled copies of both official Agent Plugins schemas.
@@ -136,3 +146,15 @@ See [VALIDATION.md](VALIDATION.md) for verified checks and unverified installati
 - Real ChatGPT account installation, Desktop Composer Mentions dropdown and sidebar UI acceptance require a separate actual Desktop/client test. MCP protocol tests do not imply they passed.
 
 See [LICENSE](LICENSE) and [THIRD_PARTY.md](THIRD_PARTY.md).
+
+### Optional Desktop Drivers
+
+The Core is not tied to Hyprland, Peekaboo or Windows UI Automation: it
+accepts only a validated Desktop driver identifier, then resolves it in an
+installer-maintained `DesktopDriverCatalog`. New desktop implementations can
+register trusted factory functions without adding MCP tools or OS-specific
+fields to shared Target APIs. Driver absence fails closed. Desktops remain
+**disabled by default** for all Hosts. See
+[Desktop Capability](docs/DESKTOP-CAPABILITY.md) and the optional
+[MCP live scratch-window test](scripts/desktop-live-acceptance.mjs).
+Release process: [source and Plugin publication governance](docs/RELEASE-GOVERNANCE.md). An approved source change is not automatically an installed Plugin release.
