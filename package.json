@@ -1,11 +1,28 @@
 {
   "name": "chat-codex",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "private": true,
-  "description": "Private MCP coding tools with an default isolated Docker runner and explicit unsandboxed host mode",
+  "description": "ChatGPT-native MCP development workspace with typed Hosts and disposable Docker Environments",
   "type": "module",
   "license": "MIT",
-  "engines": {"node": ">=22"},
-  "scripts": {"start": "node src/server.mjs", "setup": "node scripts/setup.mjs", "test": "node --test test/*.test.mjs", "test:integration": "node test/integration.mjs", "test:host": "TEST_BACKEND=host node test/integration.mjs"},
-  "dependencies": {"@modelcontextprotocol/sdk": "1.30.1", "zod": "4.4.3"}
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "setup": "node scripts/setup.mjs",
+    "test": "node --test test/*.test.mjs",
+    "test:integration": "node test/integration.mjs",
+    "test:host": "node --test test/host.test.mjs",
+    "test:all": "npm test && npm run test:integration",
+    "test:plugin": "node --test test/plugin.test.mjs",
+    "test:provider": "node --test test/provider-contract.test.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.1",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "ajv": "^8.17.1"
+  }
 }

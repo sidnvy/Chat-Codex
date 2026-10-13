@@ -7,59 +7,140 @@ import {execFileSync} from 'node:child_process';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StreamableHTTPClientTransport} from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import {start} from '../src/server.mjs';
-const backend=process.env.TEST_BACKEND||'docker';
-const tmp=await fs.mkdtemp(path.join(os.tmpdir(),'chat-codex-test-'));
+import {assertEnvironmentProvider} from '../src/provider-contract.mjs';
+
+const base=process.env.TEST_TMP_ROOT??os.tmpdir();
+const tmp=await fs.mkdtemp(path.join(base,'chat-codex-e2e-'));
 const project=path.join(tmp,'project'),priv=path.join(tmp,'private');
-execFileSync(process.execPath,[new URL('../scripts/setup.mjs',import.meta.url).pathname,project,priv,...(backend==='host'?['--backend','host']:[])],{stdio:'pipe'});
-const token=(await fs.readFile(priv+'/token','utf8')).trim();
-const port=Number(process.env.TEST_PORT||18793);
-const config=JSON.parse(await fs.readFile(priv+'/config.json','utf8'));config.port=port;
-if(backend==='docker')assert.match(config.image,/@sha256:[a-f0-9]{64}$/);
-assert.equal(config.backend,backend);
-// Exercise an existing configuration with no backend field against real Docker.
-if(backend==='docker')delete config.backend;
-await fs.writeFile(priv+'/config.json',JSON.stringify(config));
-const {server}=await start(priv+'/config.json');
-const client=new Client({name:'chat-codex-test',version:'1'},{capabilities:{}});
+execFileSync(process.execPath,[new URL('../scripts/setup.mjs',import.meta.url).pathname,project,priv,'--backend','both']);
+const configPath=path.join(priv,'config.json'),cfg=JSON.parse(await fs.readFile(configPath,'utf8'));
+cfg.port=Number(process.env.TEST_PORT??(18000+(process.pid%1000)));
+await fs.writeFile(configPath,JSON.stringify(cfg));
+const token=(await fs.readFile(path.join(priv,'token'),'utf8')).trim();
+const {server,router,tasks}=await start(configPath);
+const client=new Client({name:'chat-codex-e2e',version:'1.0.0'},{capabilities:{}});
+const env={kind:'environment',id:'dev'},host={kind:'host',id:'local'};
 let assertions=0;
-const ok=(v,msg)=>{assert.ok(v,msg);assertions++;};
-const call=async(name,args,fail=false)=>{const r=await client.callTool({name,arguments:args},undefined,{timeout:90000});if(!fail)ok(!r.isError,JSON.stringify(r));return r;};
-try {
- const url=new URL(`http://127.0.0.1:${port}/mcp`);
- ok((await fetch(url,{method:'POST',body:'{}'})).status===401,'auth enforced');
- ok((await fetch(url,{method:'POST',headers:{Authorization:'Bearer wrong'},body:'{}'})).status===401,'wrong auth');
- ok((await fetch(url,{headers:{Origin:'https://attacker.invalid'}})).status===403,'origin blocked');
+const ok=(value,message)=>{assert.ok(value,message);assertions++;};
+const eq=(a,b,message)=>{assert.deepEqual(a,b,message);assertions++;};
+const call=async(name,args={},expectedError=false)=>{
+ try{
+  const r=await client.callTool({name,arguments:args},undefined,{timeout:100000});
+  if(!expectedError)ok(!r.isError,name+': '+JSON.stringify(r));
+  else ok(!!r.isError,name+' expected error');
+  return r;
+ }catch(e){if(!expectedError)throw e;assertions++;return {isError:true,error:String(e)};}
+};
+const data=r=>r.structuredContent;
+let created=false;
+try{
+ const url=new URL('http://127.0.0.1:'+cfg.port+'/mcp');
+ eq((await fetch(url,{method:'POST',body:'{}'})).status,401,'auth mandatory');
+ eq((await fetch(url,{method:'POST',headers:{Authorization:'Bearer invalid'},body:'{}'})).status,401,'bad bearer');
+ eq((await fetch(url,{headers:{Origin:'https://evil.invalid'}})).status,403,'origin blocked');
  await client.connect(new StreamableHTTPClientTransport(url,{requestInit:{headers:{Authorization:'Bearer '+token}}}));
- ok((await client.listTools()).tools.length===5,'five tools');
- await call('write_file',{path:'add.mjs',content:'export const add=(a,b)=>a-b;\n'});
- await call('write_file',{path:'add.test.mjs',content:"import test from 'node:test';import assert from 'node:assert/strict';import {add} from './add.mjs';test('adds',()=>assert.equal(add(2,3),5));\n"});
- ok((await call('read_file',{path:'add.mjs'})).structuredContent.result.content.includes('a-b'),'read');
- ok((await call('list_files',{})).structuredContent.result.entries.length===2,'list');
- const red=await call('run_command',{command:'node --test add.test.mjs'},true);ok(red.isError&&red.structuredContent.exit_code===1,'red test');
- await call('edit_file',{path:'add.mjs',old_text:'a-b',new_text:'a+b'});
- const green=await call('run_command',{command:'node --test add.test.mjs'});ok(green.structuredContent.exit_code===0,'green test');
- ok((await call('read_file',{path:'../private/token'},true)).isError,'path escape rejected');
- await call('run_command',{command:'ln -s /etc outside'});
- ok((await call('read_file',{path:'outside/passwd'},true)).isError,'symlink escape rejected');
- if(backend==='docker') {
- const isolation=await call('run_command',{command:"test ! -e /var/run/docker.sock && test ! -e /run/secrets && test $(id -u) -ne 0 && test ! -e '"+priv+"/token' && ! touch /readonly-check && node -e \"require('net').connect({host:'1.1.1.1',port:443}).on('error',()=>process.exit(0)).on('connect',()=>process.exit(1));setTimeout(()=>process.exit(0),1500)\""});
- ok(isolation.structuredContent.exit_code===0,'no socket/token/root writes/egress');
- } else {
- process.env.CHAT_CODEX_TEST_SECRET='should-not-inherit';
- const minimal=await call('run_command',{command:"node -e \"if(process.env.CHAT_CODEX_TEST_SECRET||process.env.CHAT_CODEX_CONFIG||process.env.SSH_AUTH_SOCK)process.exit(1)\""});
- ok(minimal.structuredContent.exit_code===0,'ambient secrets omitted');
- delete process.env.CHAT_CODEX_TEST_SECRET;
+ const tools=(await client.listTools()).tools;
+ const names=tools.map(t=>t.name);
+ for(const name of ['host_list','host_status','environment_create','environment_start','environment_stop','environment_delete','project_list','target_exec','target_read_file','target_write_file','target_apply_patch','target_task_list','target_process_start','target_process_poll','target_process_stop','resource_search','chat_codex_home']){
+  ok(names.includes(name),'missing tool '+name);
  }
- const timeout=await call('run_command',{command:'sleep 30',timeout_ms:1000},true);ok(timeout.isError&&timeout.structuredContent.termination==='timeout','timeout');
- const flood=await call('run_command',{command:"node -e \"for(;;)process.stdout.write('x'.repeat(8192))\""},true);ok(flood.isError&&flood.structuredContent.termination==='output_limit','output bound');
- const error=await call('run_command',{command:'printf expected-stderr >&2; exit 7'},true);ok(error.isError&&error.structuredContent.exit_code===7&&error.structuredContent.stderr==='expected-stderr','stderr and exit status');
- ok((await call('edit_file',{path:'add.mjs',old_text:'not-present',new_text:'x'},true)).isError,'missing edit rejected');
- const pending=call('run_command',{command:'sleep 2; printf done'});
- await new Promise(r=>setTimeout(r,150));
- ok((await call('list_files',{},true)).isError,'concurrent operation rejected');
- await pending;
- if(backend==='docker') {
- const names=execFileSync('docker',['ps','-a','--filter','label=chat-codex=ephemeral','--format','{{.Names}}'],{encoding:'utf8'});ok(!names.trim(),'containers cleaned');
+ ok(!names.includes('run_command')&&!names.includes('write_file'),'legacy tools removed');
+ eq(tools.find(x=>x.name==='target_exec').inputSchema.additionalProperties,false,'strict schema');
+ eq(tools.find(x=>x.name==='target_exec').inputSchema.properties.target.additionalProperties,false,'strict target schema');
+ eq(client.getServerCapabilities().experimental['openai/mentions'].searchTool,'resource_search','mention capability');
+ assertEnvironmentProvider(router.docker);assertions++;
+ eq((await call('host_status',{host:'local'})).structuredContent.connection,'connected','host connected');
+ eq((await call('environment_status',{environment:'dev'})).structuredContent.lifecycle,'absent','not created');
+ await call('environment_create',{environment:'local'},true); // Host cannot be provisioned/deleted
+ await call('environment_delete',{environment:'local'},true);
+ eq((await call('host_status',{host:'local'})).structuredContent.connection,'connected','Host never deleted');
+ await call('target_exec',{target:{kind:'environment',id:'missing'},command:'touch invalid'},true);
+ await call('target_exec',{target:{kind:'host',id:'dev'},command:'touch invalid'},true);
+ await call('target_exec',{target:{kind:'environment',id:'dev',provider:'host'},command:'touch invalid'},true);
+ await call('target_exec',{target:{kind:'invalid',id:'dev'},command:'touch invalid'},true);
+ await call('target_exec',{target:env,command:'touch invalid',workspace:'/'},true);
+ await call('environment_create',{environment:'dev'});created=true;
+ eq((await call('environment_status',{environment:'dev'})).structuredContent.lifecycle,'created','created != started');
+ await call('environment_start',{environment:'dev'});
+ const dockerA=await router.docker.inspect(router.registry.environments.get('dev'),router.registry.projects.get('default'));
+ ok(dockerA.Id.length>40,'real container ID');
+ await call('target_write_file',{target:env,path:'add.mjs',content:'export const add=(a,b)=>a-b;\n'});
+ await call('target_write_file',{target:env,path:'add.test.mjs',content:"import test from 'node:test';import assert from 'node:assert/strict';import {add} from './add.mjs';test('add',()=>assert.equal(add(2,3),5));\n"});
+ eq(data(await call('target_read_file',{target:env,path:'add.mjs'})).result.content,'export const add=(a,b)=>a-b;\n','file read');
+ eq(data(await call('target_list_directory',{target:env,path:'.'})).result.entries.length,2,'file list');
+ const red=await call('target_exec',{target:env,command:'node --test add.test.mjs'},true);
+ eq(data(red).exit_code,1,'red test');
+ await call('target_apply_patch',{target:env,path:'add.mjs',patch:'--- a/add.mjs\n+++ b/add.mjs\n@@ -1 +1 @@\n-export const add=(a,b)=>a-b;\n+export const add=(a,b)=>a+b;\n'});
+ const green=await call('target_exec',{target:env,command:'node --test add.test.mjs'});
+ eq(data(green).exit_code,0,'green test');
+ const dockerB=await router.docker.inspect(router.registry.environments.get('dev'),router.registry.projects.get('default'));
+ eq(dockerB.Id,dockerA.Id,'runtime identity stable across commands');
+ await call('target_read_file',{target:env,path:'../private/token'},true);
+ await call('target_write_file',{target:env,path:'../private/escape',content:'bad'},true);
+ await call('target_apply_patch',{target:env,path:'../private/token',patch:'x'},true);
+ await call('target_exec',{target:env,command:'ln -s /etc outside'});
+ await call('target_read_file',{target:env,path:'outside/passwd'},true);
+ await call('target_write_file',{target:env,path:'outside/escape',content:'bad'},true);
+ await call('target_exec',{target:env,command:'ln -s /tmp tmp-link'});
+ await call('target_write_file',{target:env,path:'tmp-link/escape',content:'bad'},true);
+ const isolation=await call('target_exec',{target:env,command:'test "$(id -u)" -ne 0 && test ! -e /var/run/docker.sock && test ! -e /run/secrets && ! touch /readonly-check && test ! -e /root/.ssh && test ! -e /home/sid'});
+ eq(data(isolation).exit_code,0,'no socket/root/host home/rootfs writing');
+ const network=await call('target_exec',{target:env,command:"node -e \"const n=require('node:net').connect(443,'1.1.1.1');n.on('connect',()=>process.exit(1));n.on('error',()=>process.exit(0));setTimeout(()=>process.exit(0),1800)\""});
+ eq(data(network).exit_code,0,'network isolated');
+ const fail=await call('target_exec',{target:env,command:'printf fail >&2; exit 7'},true);
+ eq(data(fail).exit_code,7,'exit code');
+ eq(data(fail).stderr,'fail','stderr');
+ const timed=await call('target_exec',{target:env,command:'sleep 30',timeout_ms:1000},true);
+ eq(data(timed).termination,'timeout','bounded time');
+ eq((await call('environment_status',{environment:'dev'})).structuredContent.lifecycle,'stopped','timeout stops container to kill process');
+ await call('environment_start',{environment:'dev'});
+ const flood=await call('target_exec',{target:env,command:'node -e "for(;;)process.stdout.write(\'x\'.repeat(8192))"',timeout_ms:15000},true);
+ eq(data(flood).termination,'output_limit','bounded output');
+ eq((await call('environment_status',{environment:'dev'})).structuredContent.lifecycle,'stopped','output flood stopped environment');
+ await call('environment_start',{environment:'dev'});
+ const done=await call('target_process_start',{target:env,command:'sleep 1; printf task-ok',timeout_ms:6000});
+ const taskId=data(done).id;
+ ok(/^[a-f0-9]{24}$/.test(taskId),'task ID');
+ let state;
+ for(let i=0;i<30;i++){
+  const poll=await call('target_process_poll',{target:env,session_id:taskId});
+  state=data(poll);
+  if(state.status!=='running')break;
+  await new Promise(r=>setTimeout(r,200));
  }
- console.log(JSON.stringify({ok:true,assertions,red_exit:red.structuredContent.exit_code,green_exit:green.structuredContent.exit_code,backend,real_docker:backend==='docker',chatgpt_account_tested:false}));
-}finally{await client.close();server.closeAllConnections();await new Promise(r=>server.close(r));await fs.rm(tmp,{recursive:true,force:true});}
+ eq(state.status,'completed','task completed');
+ eq(state.stdout,'task-ok','task output');
+ const slow=await call('target_process_start',{target:env,command:'sleep 20',timeout_ms:30000});
+ const stopped=await call('target_process_stop',{target:env,session_id:data(slow).id});
+ ok(['cancelled','unknown'].includes(data(stopped).status),'cancellation classification');
+ await call('target_task_list',{target:env});
+ if((await router.status(env)).lifecycle!=='running')await call('environment_start',{environment:'dev'});
+ const mentions=data(await call('resource_search',{query:'add.mjs'}));
+ ok(mentions.items.some(x=>x.type==='resource_link'&&x.uri.includes('/file/add.mjs')),'file mention');
+ const generic=data(await call('resource_search',{query:''}));
+ ok(generic.items.some(x=>x.uri==='chat-codex://host/local')&&generic.items.some(x=>x.uri==='chat-codex://environment/dev')&&generic.items.some(x=>x.uri==='chat-codex://project/default'),'registered mentions');
+ await fs.writeFile(path.join(project,'.env'),'TOP_SECRET_NEVER_RETURN\n');
+ ok(!data(await call('resource_search',{query:'.env'})).items.some(x=>x.name==='.env'),'sensitive files excluded');
+ const home=await call('chat_codex_home',{});
+ eq(data(home).environments[0].lifecycle,'running','home snapshot');
+ ok(data(home).executions.some(e=>e.op==='exec'),'recent synchronous execution receipts visible');
+ const ui=await client.readResource({uri:'ui://chat-codex/home'});
+ ok(ui.contents[0].mimeType==='text/html;profile=mcp-app'&&ui.contents[0].text.includes('Recent Tasks'),'real MCP App resource');
+ const hostExec=await call('target_exec',{target:host,command:'printf unsandboxed-host'});
+ eq(data(hostExec).stdout,'unsandboxed-host','same execution API on host');
+ await call('environment_stop',{environment:'dev'});
+ eq((await call('environment_status',{environment:'dev'})).structuredContent.lifecycle,'stopped','stop lifecycle');
+ await call('environment_start',{environment:'dev'});
+ eq(data(await call('target_read_file',{target:env,path:'add.mjs'})).result.content,'export const add=(a,b)=>a+b;\n','project persistence');
+ await call('environment_delete',{environment:'dev'});created=false;
+ eq((await call('environment_status',{environment:'dev'})).structuredContent.lifecycle,'absent','delete lifecycle');
+ ok((await fs.readFile(path.join(project,'add.mjs'),'utf8')).includes('a+b'),'project retained after delete');
+ await call('target_exec',{target:env,command:'touch should-never-run-on-host'},true);
+ ok(!(await fs.readdir(project)).includes('should-never-run-on-host'),'Docker failure never falls back to Host');
+ console.log(JSON.stringify({passed:true,assertions,real_docker:true,real_http:true,host:true,mentions:true,app_resource:true,chatgpt_desktop_tested:false,provider:'docker',runtime_identity_stable:true}));
+}finally{
+ await client.close();
+ if(created)try{await router.lifecycle('delete','dev');}catch(e){console.error('CLEANUP_FAILED',e);}
+ server.closeAllConnections();await new Promise(r=>server.close(r));
+ await fs.rm(tmp,{recursive:true,force:true});
+}

@@ -9,7 +9,7 @@ import {fileURLToPath} from 'node:url';
 // A program that deliberately creates a new session can escape this group.
 export class HostRunner {
   constructor(config) {this.config=config;this.busy=false;this.blocked=false;}
-  async run(job) {
+  async run(job,{signal}={}) {
     if(this.blocked)throw Error('Host cleanup failed; inspect processes before restarting');
     if(this.busy)throw Error('Another operation is running; wait for its result');
     this.busy=true;
@@ -28,6 +28,8 @@ export class HostRunner {
           try{process.kill(-child.pid,'SIGKILL');}catch(e){if(e.code!=='ESRCH')this.blocked=true;}
         };
         const stop=why=>{reason??=why;killGroup();child.stdout.destroy();child.stderr.destroy();};
+        const onAbort=()=>stop('cancelled');
+        if(signal?.aborted)onAbort();else signal?.addEventListener('abort',onAbort,{once:true});
         const timer=setTimeout(()=>stop('timeout'),job.timeout_ms??15000);
         const collect=which=>chunk=>{
           const kept=chunk.subarray(0,Math.max(0,65536-size));size+=chunk.length;
@@ -38,7 +40,7 @@ export class HostRunner {
         child.on('error',e=>{clearTimeout(timer);killGroup();reject(e);});
         // Do not wait for inherited stdout held open by a background descendant.
         child.on('exit',killGroup);
-        child.on('close',code=>{clearTimeout(timer);resolve({exit_code:reason?null:code,stdout,stderr,termination:reason,duration_ms:Date.now()-started});});
+        child.on('close',code=>{clearTimeout(timer);signal?.removeEventListener('abort',onAbort);resolve({exit_code:reason?null:code,stdout,stderr,termination:reason,duration_ms:Date.now()-started});});
         child.stdin.on('error',()=>{});child.stdin.end(JSON.stringify(job));
       });
       if(job.op!=='exec'&&(receipt.exit_code!==0||receipt.termination))throw Error('File operation failed: '+receipt.stderr.slice(0,500));
