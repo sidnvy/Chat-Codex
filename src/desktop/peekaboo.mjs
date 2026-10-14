@@ -3,7 +3,7 @@ import {constants} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
-import {DesktopError,DESKTOP_IMAGE_LIMIT_BYTES} from './contract.mjs';
+import {DesktopError,DESKTOP_IMAGE_LIMIT_BYTES} from './primitives.mjs';
 import {localDesktopExec,parseCommandJson} from './exec.mjs';
 const bounded=value=>String(value??'').slice(0,128);
 const invalid=message=>new DesktopError('invalid_driver_response',message);
@@ -38,7 +38,7 @@ export class PeekabooDesktop {
     return {driver:this.driver,state:'permission_denied',ready:false,permissions,capabilities:[]};
    const session=await this.sessionProbe();
    const verified=session?.ready===true&&typeof session.session_id==='string'&&session.session_id.length>0&&session.session_id.length<=1024;
-   const state=verified?'ready':'session_unverified';
+   const state=verified?'ready':session?.ready===false&&session.state==='locked'?'locked':'session_unverified';
    return {driver:this.driver,state,ready:state==='ready',permissions,
     ...(verified?{session_id:createHash('sha256').update(session.session_id).digest('hex')}:{}),
     capabilities:state==='ready'?['windows','window_screenshot','accessibility','keyboard','element_click']:[]};
@@ -61,7 +61,7 @@ export class PeekabooDesktop {
   if(data.target_application_info?.pid!==app.pid||!Array.isArray(data.windows))throw invalid('Window inventory owner does not match requested PID');
   const windows=data.windows.map(w=>{
    if(!Number.isSafeInteger(w.window_id)||w.window_id<=0||typeof w.window_title!=='string')throw invalid('Invalid exact window identity');
-   return {id:String(w.window_id),title:bounded(w.window_title),title_truncated:w.window_title.length>128,app:bounded(app.name),pid:app.pid,
+   return {id:String(w.window_id),title:bounded(w.window_title),title_truncated:w.window_title.length>128,app:bounded(app.bundle_id??app.name),pid:app.pid,
     full_title:w.window_title,process_start:app.process_start_identity_decimal};
   });
   return {windows,truncated:data.inventory_completeness!=='complete'};
@@ -69,12 +69,20 @@ export class PeekabooDesktop {
  async inventory(){
   const data=await this.applications();
   let truncated=data.apps.length>50||(data.warnings?.length??0)>0;
+  // Query at most four applications concurrently. Keep provider order so
+  // completion timing cannot change which bounded inventory is exposed.
+  const apps=data.apps.slice(0,50),results=new Array(apps.length);
+  let next=0;
+  await Promise.all(Array.from({length:Math.min(4,apps.length)},async()=>{
+   for(;;){
+    const index=next++;if(index>=apps.length)return;
+    try{results[index]=await this.windows(apps[index]);}
+    catch{results[index]={windows:[],truncated:true};}
+   }
+  }));
   const windows=[];
-  for(const app of data.apps.slice(0,50)){
-   try{const result=await this.windows(app);windows.push(...result.windows);truncated ||= result.truncated;}
-   catch{truncated=true;}
-   if(windows.length>100){truncated=true;break;}
-  }
+  for(const result of results){windows.push(...result.windows);truncated ||= result.truncated;}
+  truncated ||= windows.length>100;
   const counts=new Map();
   for(const window of windows)counts.set(window.id,(counts.get(window.id)??0)+1);
   return {windows:windows.slice(0,100),truncated,duplicate_ids:new Set([...counts].filter(([,count])=>count>1).map(([id])=>id))};
@@ -125,7 +133,8 @@ export class PeekabooDesktop {
    const seen=new Set();
    const elements=data.ui_elements.slice(0,100).map(e=>{
     if(typeof e.id!=='string'||!e.id||e.id.length>128||seen.has(e.id))throw invalid('Invalid or duplicate element identity');
-    seen.add(e.id);return {id:e.id,role:String(e.role??'').slice(0,80),label:String(e.label??e.title??'').slice(0,160)};
+    seen.add(e.id);return {id:e.id,role:String(e.role??'').slice(0,80),label:String(e.label??e.title??'').slice(0,160),
+     ...(typeof e.value==='string'?{value:e.value.slice(0,200)}:{})};
    });
    let image;
    if(data.screenshot_raw!==''){

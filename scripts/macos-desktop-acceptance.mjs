@@ -9,36 +9,11 @@ import assert from 'node:assert/strict';
 import {fileURLToPath} from 'node:url';
 import {DesktopCore} from '../src/desktop/core.mjs';
 import {PeekabooDesktop} from '../src/desktop/peekaboo.mjs';
-import {localDesktopExec} from '../src/desktop/exec.mjs';
 import {DesktopError} from '../src/desktop/contract.mjs';
 const exec=promisify(execFile);
 
-// Native OS evidence only. The probe emits an opaque generation, never account
-// names or the raw console-session UUID. Missing/malformed evidence fails closed.
-export async function macOSSessionProbe(){
- if(process.platform!=='darwin'||!process.getuid?.())return {ready:false};
- try{
-  const result=await localDesktopExec('python3',['-c',`
-import hashlib,json,os,plistlib,subprocess
-raw=subprocess.check_output(['/usr/sbin/ioreg','-n','Root','-d1','-a'],timeout=5)
-if len(raw)>4194304: raise ValueError('oversized native session evidence')
-d=plistlib.loads(raw)
-rows=d.get('IOConsoleUsers',[]) if isinstance(d,dict) else []
-active=[r for r in rows if isinstance(r,dict) and r.get('kCGSSessionOnConsoleKey') is True and r.get('kCGSessionLoginDoneKey') is True]
-ready=isinstance(d,dict) and d.get('IOConsoleLocked') is False and len(active)==1
-if ready:
- r=active[0]
- uid=r.get('kCGSSessionUserIDKey'); generation=r.get('CGSSessionUniqueSessionUUID'); session=r.get('kCGSSessionIDKey')
- ready=type(uid) is int and uid==os.geteuid() and isinstance(generation,str) and bool(generation) and type(session) is int
-if ready:
- identity=json.dumps([uid,generation,session],separators=(',',':')).encode()
- print(json.dumps({'ready':True,'session_id':hashlib.sha256(identity).hexdigest()}))
-else: print(json.dumps({'ready':False}))
-`],{timeout_ms:7000});
-  const proof=JSON.parse(result);
-  return proof.ready===true&&/^[a-f0-9]{64}$/.test(proof.session_id)?proof:{ready:false};
- }catch{return {ready:false};}
-}
+import {macOSSessionProbe} from '../src/desktop/macos-session.mjs';
+export {macOSSessionProbe} from '../src/desktop/macos-session.mjs';
 export async function main(){
  assert.equal(process.platform,'darwin','Native macOS required');
  assert.equal(process.versions.node.split('.')[0],'22','Node22 required');

@@ -31,7 +31,9 @@
   "exports": {
     "./desktop/core": "./src/desktop/core.mjs",
     "./desktop/contract": "./src/desktop/contract.mjs",
-    "./desktop/hyprland-worker": "./src/desktop/hyprland-worker.mjs"
+    "./desktop/hyprland-worker": "./src/desktop/hyprland-worker.mjs",
+    "./desktop/peekaboo-worker": "./src/desktop/peekaboo-worker.mjs",
+    "./desktop/macos-session": "./src/desktop/macos-session.mjs"
   },
   "files": [
     "src/",
