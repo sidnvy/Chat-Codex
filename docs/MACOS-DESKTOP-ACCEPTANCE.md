@@ -1,7 +1,6 @@
 # Native macOS scratch acceptance
 
-`scripts/macos-desktop-acceptance.mjs` is an opt-in, unexecuted native acceptance
-harness. It requires the independently reviewed hardened Peekaboo adapter with
+`scripts/macos-desktop-acceptance.mjs` is an opt-in native acceptance harness. It requires the independently reviewed hardened Peekaboo adapter with
 `new PeekabooDesktop(run, sessionProbe)` and process/session-bound exact-window
 receipts. It does not establish macOS acceptance merely by compiling or passing
 portable fixtures.
@@ -44,4 +43,20 @@ Read-only workstation preflight on 2026-10-14 found Node22 and Swift available.
 Desktop readiness changed between observations; a later native OS sample was
 unlocked with one matching active user and a session UUID. Those historical
 samples do not authorize a later GUI run: the harness must obtain fresh proof.
-No real GUI execution or acceptance has been recorded for this harness yet.
+Native attempts on 2026-10-14 did not pass acceptance. The original 60-second
+attempt expired without phase evidence. A subsequent fresh scratch with measured
+slow inventory reached real PNG capture, then returned `outcome_unknown` at the
+type dispatch; it was not retried. Cleanup was independently checked: zero owned
+scratch, acceptance Node or Peekaboo CLI processes remained. Neither attempt is
+an acceptance success.
+
+Sanitized phase and native-command category/elapsed logs contain no command
+arguments, target IDs, input values, session identities or screenshots. An abort
+controller kills in-flight native command children and awaits settlement before
+removing scratch files; the Core grant is revoked before cleanup. The default
+scratch deadline remains 60 seconds. `--inventory-preflight` is read-only and
+measures native inventory cost; only after demonstrated progress may an operator
+choose `--slow-inventory` for a 180-second scratch deadline. One measured inventory
+took 31,261 ms with 54 total completed commands, motivating the explicit slow
+mode. Never repeat an uncertain mutation against an old scratch target; any new
+independent test requires a newly created scratch and renewed readiness gates.

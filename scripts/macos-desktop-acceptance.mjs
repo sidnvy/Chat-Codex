@@ -10,6 +10,7 @@ import {fileURLToPath} from 'node:url';
 import {DesktopCore} from '../src/desktop/core.mjs';
 import {PeekabooDesktop} from '../src/desktop/peekaboo.mjs';
 import {localDesktopExec} from '../src/desktop/exec.mjs';
+import {DesktopError} from '../src/desktop/contract.mjs';
 const exec=promisify(execFile);
 
 // Native OS evidence only. The probe emits an opaque generation, never account
@@ -43,13 +44,37 @@ export async function main(){
  assert.equal(process.versions.node.split('.')[0],'22','Node22 required');
  assert.equal((await macOSSessionProbe()).ready,true,'Current UID must own an unlocked, logged-in console session');
  await exec('swiftc',['--version'],{timeout:10000});
- const driver=new PeekabooDesktop(localDesktopExec,macOSSessionProbe);
+ const controller=new AbortController(),inflight=new Set();
+ let completedCommands=0;
+ const tracedExec=(command,args=[],options={})=>{
+  const started=Date.now(),category=['app','window','permissions','see','type','press','click'].includes(args[0])?args[0]:'other';
+  console.log(JSON.stringify({command:path.basename(command),category,event:'start'}));
+  const task=exec(command,args,{encoding:'utf8',timeout:options.timeout_ms??10000,maxBuffer:4194304,signal:controller.signal,killSignal:'SIGKILL'})
+   .then(result=>{completedCommands++;return result.stdout;})
+   .catch(error=>{
+    let code;try{const parsed=JSON.parse(error.stdout??'');const candidate=parsed.error?.code;if(typeof candidate==='string'&&/^[A-Za-z0-9_-]{1,80}$/.test(candidate))code=candidate;}catch{}
+    console.log(JSON.stringify({command:path.basename(command),category,event:'failure',exit_code:Number.isInteger(error.code)?error.code:undefined,native_error_code:code}));
+    throw new DesktopError(error.code==='ENOENT'?'driver_unavailable':error.killed?'timeout':'driver_error','Native command failed');
+   })
+   .finally(()=>{inflight.delete(task);console.log(JSON.stringify({command:path.basename(command),category,event:'settled',elapsed_ms:Date.now()-started}));});
+  inflight.add(task);return task;
+ };
+ const driver=new PeekabooDesktop(tracedExec,macOSSessionProbe);
  const status=await driver.status();
  assert.equal(status.ready,true,'Audited Peekaboo adapter and OS permissions must be ready');
  assert.equal(typeof status.session_id,'string','Hardened session-bound Peekaboo adapter required');
+ if(process.argv.includes('--inventory-preflight')){
+  const started=Date.now(),timer=setTimeout(()=>controller.abort(),180000);
+  try{const inventory=await driver.observe({mode:'windows'});console.log(JSON.stringify({ready:true,inventory_preflight:true,elapsed_ms:Date.now()-started,completed_commands:completedCommands,window_count:inventory.windows.length,gui_mutated:false}));}
+  finally{clearTimeout(timer);controller.abort();await Promise.allSettled([...inflight]);}
+  return;
+ }
  if(process.argv.includes('--preflight')){console.log(JSON.stringify({ready:true,node22:true,swift:true,native_session:true,gui_mutated:false}));return;}
+ const timeout=process.argv.includes('--slow-inventory')?180000:60000;
  const temporary=await fs.mkdtemp(path.join(os.tmpdir(),'styx-macos-acceptance-'));
  let scratch,closed,output='',deadline,expired=false;
+ const started=Date.now();let phase='prepare';
+ const mark=name=>{phase=name;console.log(JSON.stringify({phase,elapsed_ms:Date.now()-started}));};
  try{
   const target={kind:'host',id:'macos-scratch'};
   const core=new DesktopCore({grantForTarget:t=>{assert.deepEqual(t,target);if(expired)throw Error('Acceptance expired');return {enabled:true,driver:'peekaboo'};},driverFactory:()=>driver});
@@ -70,36 +95,50 @@ final class Scratch: NSObject, NSApplicationDelegate {
 }
 let app=NSApplication.shared;let delegate=Scratch();app.setActivationPolicy(.regular);app.delegate=delegate;app.run()
 `);
+  mark('compile');
   await exec('swiftc',[source,'-o',binary],{timeout:60000,maxBuffer:1048576});
   assert.equal((await macOSSessionProbe()).ready,true,'Session must still be ready before scratch creation');
+  mark('scratch-launch');
   scratch=spawn(binary,[],{stdio:['ignore','pipe','ignore']});
   scratch.stdout.on('data',chunk=>{output+=chunk;if(output.length>4096)scratch.kill();});
   closed=new Promise((resolve,reject)=>{scratch.once('error',reject);scratch.once('close',resolve);});closed.catch(()=>{});
   const run=async()=>{
    let selected;
    for(let i=0;i<30;i++){
+    mark('window-discovery');
     const inventory=await core.observe({target,mode:'windows'});
     selected=inventory.windows.find(w=>String(w.pid)===String(scratch.pid)&&w.title===title&&w.title_truncated!==true);
     if(selected)break;await new Promise(resolve=>setTimeout(resolve,200));
    }
    assert.ok(selected,'Only exact owned scratch PID and title may be selected');
    const observe=()=>core.observe({target,mode:'window',window_id:selected.id});
+   mark('initial-capture');
    const seen=await observe();
    assert.equal(seen.image?.mimeType,'image/png','Real PNG capture required');
    const action={target,snapshot_id:seen.snapshot_id,action:{type:'type',text:marker}};
+   mark('type-dispatch');
    assert.equal((await core.act(action)).outcome,'dispatched_unverified');
+   mark('replay-rejection');
    await assert.rejects(core.act(action),e=>e.code==='unknown_snapshot');
+   mark('verification-capture');
    const fresh=await observe();
    const buttons=fresh.elements.filter(e=>e.label==='Commit Styx Scratch');assert.equal(buttons.length,1,'Owned scratch button must be unique');
+   mark('button-dispatch');
    const result=await core.act({target,snapshot_id:fresh.snapshot_id,action:{type:'invoke',element_id:buttons[0].id}});
    assert.equal(result.outcome,'dispatched_unverified');
+   mark('stdout-verification');
    assert.equal(await closed,0);assert.equal(output.trim(),marker);
    console.log(JSON.stringify({passed:true,authenticated_mcp:false,shared_core:true,native_macos:true,screenshot:true,replay_rejected:true,scratch_stdout_verified:true}));
   };
-  await Promise.race([run(),new Promise((_,reject)=>{deadline=setTimeout(()=>{expired=true;reject(Error('macOS scratch acceptance deadline exceeded'));},60000);})]);
+  await Promise.race([run(),new Promise((_,reject)=>{deadline=setTimeout(()=>{expired=true;reject(Error('macOS scratch acceptance deadline exceeded'));},timeout);})]);
+ }catch(error){
+  console.error(JSON.stringify({passed:false,phase,elapsed_ms:Date.now()-started,authenticated_mcp:false}));
+  throw error;
  }finally{
   clearTimeout(deadline);
-  expired=true; // Revoke this harness admission before cleanup; no late retries.
+  expired=true; // Revoke admission, abort native children, and await settlement.
+  controller.abort();
+  await Promise.allSettled([...inflight]);
   if(scratch?.exitCode===null){scratch.kill('SIGKILL');await closed.catch(()=>{});}
   await fs.rm(temporary,{recursive:true,force:true});
  }
