@@ -49,3 +49,19 @@ External operating-system tools such as Hyprland CLI utilities, Peekaboo, and Wi
 5. After platform acceptance and license/provenance checks: publish an approved pinned Styx package and test an isolated Charon consumer integration, before any production migration.
 
 Current incompatibilities: Charon still owns independent remote-dispatch and broker semantics; its remote workers are not reusable via a public pinned Styx package yet. The Core composition seam alone does not establish consumer compatibility. macOS and Windows Styx authenticated real-GUI E2E have not been established. Charon production and installed Plugin/App identities remain unchanged.
+
+## Hyprland session and process receipt hardening
+
+The local Hyprland adapter requires explicit boolean unlocked evidence and a
+trusted compositor instance signature (`HYPRLAND_INSTANCE_SIGNATURE`). It exposes
+only a SHA-256 session fingerprint, binds exact-window receipts to the compositor
+generation and positive process ID, and rechecks foreground identity, geometry,
+and readiness after capture and before dispatch. Coordinate clicks recheck after
+pointer movement before emitting the click. A missing signature fails closed.
+
+Trusted compositions may inject a session identity callback as the optional second
+constructor argument, alongside their target-bound execution adapter. This is a
+trusted composition seam, never a model-supplied session identity. The callback
+and execution adapter must identify the same compositor. Process IDs reduce
+window-address reuse risk but do not establish process start time; this is not an
+atomic desktop transaction. No private implementation was copied.

@@ -74,7 +74,7 @@ test('Hyprland inventories distinguish 100 visible windows from overflow',async(
  for(const count of [99,100,101]){
   const clients=Array.from({length:count},(_,i)=>({address:'w'+i,title:i===99?'Scratch':'Window '+i,mapped:true}));
   clients.push({address:'hidden',hidden:true},{address:'unmapped',mapped:false});
-  const hypr=new HyprlandDesktop(async(_command,args)=>JSON.stringify(args[1]==='clients'?clients:args[1]==='monitors'?[{name:'test'}]:{locked:false}));
+  const hypr=new HyprlandDesktop(async(_command,args)=>JSON.stringify(args[1]==='clients'?clients:args[1]==='monitors'?[{name:'test'}]:{locked:false}),()=> 'test-session');
   const inventory=await hypr.observe({mode:'windows'});
   assert.equal(inventory.windows.length,Math.min(count,100));
   assert.equal(inventory.truncated,count>100);

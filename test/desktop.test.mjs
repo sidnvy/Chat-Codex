@@ -61,16 +61,16 @@ test('Hyprland native adapter uses JSON IPC and dispatches only focused fingerpr
   if(cmd==='hyprctl'){
    if(args[1]==='monitors')return JSON.stringify([{name:'HEADLESS-1',width:1920,height:1080}]);
    if(args[1]==='locked')return JSON.stringify({locked:false});
-   if(args[1]==='clients')return JSON.stringify([{address:'0x123',class:'zenity',title:'Scratch',at:[100,200],size:[400,300],workspace:{name:'98'},mapped:true}]);
-   if(args[1]==='activewindow')return JSON.stringify({address:'0x123',title:moved?'Other':'Scratch',at:[100,200],size:[400,300]});
+   if(args[1]==='clients')return JSON.stringify([{address:'0x123',pid:123,class:'zenity',title:'Scratch',at:[100,200],size:[400,300],workspace:{name:'98'},mapped:true}]);
+   if(args[1]==='activewindow')return JSON.stringify({address:'0x123',pid:123,title:moved?'Other':'Scratch',at:[100,200],size:[400,300]});
   }
   return '';
  };
- const d=new HyprlandDesktop(run);
+ const d=new HyprlandDesktop(run,()=> 'test-session');
  assert.equal((await d.status()).ready,true);
  const windows=await d.observe({mode:'windows'});
  assert.equal(windows.windows[0].geometry.width,400);
- const receipt={window_id:'0x123',title:'Scratch',geometry};
+ const receipt={window_id:'0x123',pid:123,title:'Scratch',geometry,session_id:(await d.status()).session_id};
  await d.act(receipt,{type:'type',text:'hello'});
  assert.ok(calls.some(x=>x[0]==='wtype'&&x.includes('hello')));
  await d.act(receipt,{type:'click',x:5,y:6});
