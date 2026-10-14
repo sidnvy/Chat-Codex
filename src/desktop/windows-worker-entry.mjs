@@ -55,15 +55,7 @@ async function main(){
   const s=await driver.status();return {driver:'winapp',ready:s.ready===true,state:s.ready?'ready':allowed.has(s.state)?s.state:'session_unverified',...(s.session_id?{session_id:s.session_id}:{}),capabilities:s.ready?['windows','window_screenshot','accessibility','element_invoke','element_set_value']:[]};
  }
  await driver.session();
- if(req.operation==='windows'){
-  const inventory=await driver.observe({mode:'windows'}),output=[];let incomplete=inventory.truncated;
-  for(const w of inventory.windows){
-   if(req.title!==undefined&&w.title!==req.title)continue;
-   try{const proof=await native.window(w.hwnd);if(proof.pid!==w.pid)fail('stale_target');if(req.title!==undefined&&proof.title!==req.title)continue;output.push({...w,title:proof.title.slice(0,128),title_truncated:proof.title.length>128});}
-   catch{incomplete=true;}
-  }
-  return {...inventory,windows:output,truncated:incomplete};
- }
+ if(req.operation==='windows')return driver.verifiedWindows({title:req.title});
  if(req.operation==='window'){
   const observed=await driver.observe({mode:'window',window_id:req.window_id});
   const selectors=observed.elements.map(e=>e.id);

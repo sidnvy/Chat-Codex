@@ -5,7 +5,7 @@ import {WinappDesktop} from '../src/desktop/winapp.mjs';
 import {createWindowsWorkerSource} from '../src/desktop/windows-worker.mjs';
 const hash=v=>createHash('sha256').update(JSON.stringify(v)).digest('hex');
 function fixture(){
- const state={proof:{hwnd:'123',pid:'42',start_time:'123456',session_id:1,session_generation:'a'.repeat(64),user_sid:'S-1-5-21-1',same_user:true,title:'Scratch'},element:{selector:'txt-a-1234',type:'Edit',name:'Name',className:'Edit',automationId:'input',isEnabled:true,isOffscreen:false,isInvokable:true},commands:[]};
+ const state={proof:{hwnd:'123',pid:'42',start_time:'123456',session_id:1,session_generation:'a'.repeat(64),user_sid:'S-1-5-21-1',thread_desktop:'Default',thread_receiving:true,same_user:true,title:'Scratch'},element:{selector:'txt-a-1234',type:'Edit',name:'Name',className:'Edit',automationId:'input',isEnabled:true,isOffscreen:false,isInvokable:true},commands:[]};
  const run=async(_exe,args)=>{
   state.commands.push(args);
   if(args[1]==='list-windows')return JSON.stringify([{hwnd:'123',processId:42,title:'Scratch'}]);
@@ -18,7 +18,7 @@ function fixture(){
  return {state,driver,observe:()=>driver.observe({mode:'window',window_id:'123'})};
 }
 test('strict Windows native binding rejects process reuse, owner/session/title changes',async()=>{
- for(const [field,value] of [['start_time','789'],['session_id',2],['session_generation','b'.repeat(64)],['user_sid','S-1-5-21-2'],['title','Changed']]){
+ for(const [field,value] of [['start_time','789'],['session_id',2],['session_generation','b'.repeat(64)],['user_sid','S-1-5-21-2'],['title','Changed'],['thread_desktop','Other'],['thread_desktop',undefined],['thread_receiving',false],['thread_receiving',undefined]]){
   const f=fixture(),o=await f.observe();f.state.proof[field]=value;
   await assert.rejects(f.driver.act(o.receipt,{type:'set_value',element_id:'txt-a-1234',value:'safe'}),{code:'stale_target'});
   assert.equal(f.state.commands.some(a=>a[1]==='set-value'),false);
@@ -36,7 +36,7 @@ test('strict Windows fresh element fingerprint and action restrictions fail befo
 });
 test('strict native capture requires exact proof and complete bounded PNG',async()=>{
  const f=fixture();const png=Buffer.alloc(100);Buffer.from([137,80,78,71,13,10,26,10]).copy(png);
- const identity={hwnd:'123',pid:'42',start_time:'123456',session_id:1,session_generation:'a'.repeat(64),user_sid:'S-1-5-21-1',title_digest:hash('Scratch')};
+ const identity={hwnd:'123',pid:'42',start_time:'123456',session_id:1,session_generation:'a'.repeat(64),user_sid:'S-1-5-21-1',thread_desktop:'Default',thread_receiving:true,title_digest:hash('Scratch')};
  f.driver.captureProbe=async()=>({identity,image:{data:png.toString('base64')}});
  assert.equal((await f.observe()).image.data,png.toString('base64'));
  identity.start_time='other';await assert.rejects(f.observe(),{code:'stale_target'});
@@ -89,4 +89,34 @@ test('serialized worker reads stdin and rejects malformed/oversized requests wit
 test('Windows UIA optional value remains bounded in public observation',async()=>{
  const f=fixture();f.state.element.value='x'.repeat(250);
  assert.equal((await f.observe()).elements[0].value,'x'.repeat(200));
+});
+
+test('native inventory preserves incomplete evidence and exact-title scope',async()=>{
+ for(const code of ['permission_denied','target_not_found']){
+  const f=fixture();let probes=0;f.driver.windowProbe=async()=>{probes++;throw Object.assign(Error('unavailable'),{code});};
+  const denied=await f.driver.verifiedWindows();assert.equal(denied.truncated,true);assert.deepEqual(denied.windows,[]);
+  const unrelated=await f.driver.verifiedWindows({title:'Other'});assert.equal(unrelated.truncated,false);assert.deepEqual(unrelated.windows,[]);assert.equal(probes,1);
+  const matching=await f.driver.verifiedWindows({title:'Scratch'});assert.equal(matching.truncated,true);assert.deepEqual(matching.windows,[]);
+ }
+ const f=fixture();assert.equal((await f.driver.verifiedWindows({title:'Scratch'})).windows.length,1);
+ f.state.proof.title='Scratch changed';assert.deepEqual((await f.driver.verifiedWindows({title:'Scratch'})).windows,[]);
+});
+test('Windows inventory never drops explicit incompleteness or duplicate/malformed rows',async()=>{
+ const row={hwnd:123,processId:42,title:'Scratch'};
+ for(const data of [{windows:[row],truncated:true},{results:[row],complete:false},{windows:[row],hasMore:true},[row,row],[row,{}]]){
+  const d=new WinappDesktop(async()=>JSON.stringify(data));assert.equal((await d.listWindows()).truncated,true);
+ }
+ const d=new WinappDesktop(async()=>JSON.stringify([row]));assert.equal((await d.listWindows()).truncated,false);
+ const rows=[row,...Array.from({length:100},(_,i)=>({hwnd:200+i,processId:42})),row];
+ const duplicate=new WinappDesktop(async()=>JSON.stringify(rows));await assert.rejects(duplicate.exactWindow('123'),{code:'invalid_driver_response'});
+});
+test('capture rejects malformed PNG and identity change after image acquisition',async()=>{
+ const f=fixture(),o=await f.observe();
+ for(const data of [Buffer.alloc(100),Buffer.alloc(393217)]){
+  f.driver.captureProbe=async()=>({identity:o.receipt.identity,image:{data:data.toString('base64')}});
+  await assert.rejects(f.observe(),{code:'invalid_capture'});
+ }
+ const png=Buffer.alloc(100);Buffer.from([137,80,78,71,13,10,26,10]).copy(png);
+ f.driver.captureProbe=async()=>{f.state.proof.start_time='999';return {identity:o.receipt.identity,image:{data:png.toString('base64')}};};
+ await assert.rejects(f.observe(),{code:'stale_target'});
 });

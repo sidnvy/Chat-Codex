@@ -94,9 +94,25 @@ export class WinappDesktop {
   return payload?.data??payload;
  }
  async listWindows(){
-  const raw=windowArray(await this.call(['list-windows']));
+  const data=await this.call(['list-windows']),raw=windowArray(data);
   const windows=raw.map(projectWindow).filter(Boolean);
-  return {windows,truncated:raw.length>100};
+  const duplicate=new Set(windows.map(w=>w.hwnd)).size!==windows.length;
+  return {windows,truncated:raw.length>100||windows.length!==raw.length||duplicate||
+   data?.truncated===true||data?.complete===false||data?.hasMore===true};
+ }
+ async verifiedWindows({title}={}){
+  if(!this.windowProbe)throw new DesktopError('driver_unavailable','Native inventory proof required');
+  const inventory=await this.observe({mode:'windows'}),output=[];let incomplete=inventory.truncated;
+  for(const w of inventory.windows){
+   if(title!==undefined&&w.title!==title)continue;
+   try{
+    const proof=await this.nativeWindow(w.hwnd);
+    if(proof.pid!==w.pid)throw new DesktopError('stale_target','Native owner mismatch');
+    if(title!==undefined&&proof.title!==title)continue;
+    output.push({...w,title:proof.title.slice(0,128),title_truncated:proof.title.length>128});
+   }catch{incomplete=true;}
+  }
+  return {...inventory,windows:output,truncated:incomplete};
  }
  async session(){
   const proof=await this.sessionProbe();
@@ -128,11 +144,11 @@ export class WinappDesktop {
   if(!this.windowProbe)return null;
   const p=await this.windowProbe(hwnd);
   if(!p||p.hwnd!==hwnd||!processId(p.pid)||!/^[1-9][0-9]{0,19}$/.test(p.start_time)||
-   !Number.isInteger(p.session_id)||p.session_id<=0||p.session_id>=0xffffffff||typeof p.session_generation!=='string'||!/^[a-f0-9]{64}$/.test(p.session_generation)||p.same_user!==true||
+   !Number.isInteger(p.session_id)||p.session_id<=0||p.session_id>=0xffffffff||typeof p.session_generation!=='string'||!/^[a-f0-9]{64}$/.test(p.session_generation)||p.same_user!==true||p.thread_desktop!=='Default'||p.thread_receiving!==true||
    typeof p.user_sid!=='string'||!/^S-1-[0-9]+(?:-[0-9]+){1,15}$/.test(p.user_sid)||
    typeof p.title!=='string'||p.title.length>32767)
    throw new DesktopError('stale_target','Native window identity unavailable');
-  const identity={hwnd,pid:processId(p.pid),start_time:p.start_time,session_id:p.session_id,session_generation:p.session_generation,user_sid:p.user_sid,title_digest:digest(p.title)};
+  const identity={hwnd,pid:processId(p.pid),start_time:p.start_time,session_id:p.session_id,session_generation:p.session_generation,user_sid:p.user_sid,thread_desktop:p.thread_desktop,thread_receiving:p.thread_receiving,title_digest:digest(p.title)};
   Object.defineProperty(identity,'title',{value:p.title});return identity;
  }
  async assertNative(hwnd,expected){

@@ -14,6 +14,8 @@ public static class StyxWindowProbe {
  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hwnd);
  [DllImport("user32.dll")] static extern bool IsIconic(IntPtr hwnd);
  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd,out uint pid);
+ [DllImport("user32.dll")] static extern IntPtr GetThreadDesktop(uint thread);
+ [DllImport("user32.dll",CharSet=CharSet.Unicode)] static extern bool GetUserObjectInformationW(IntPtr handle,int index,IntPtr buffer,uint bytes,out uint needed);
  [DllImport("user32.dll",CharSet=CharSet.Unicode)] static extern int GetWindowTextW(IntPtr hwnd,StringBuilder text,int size);
  [DllImport("user32.dll",CharSet=CharSet.Unicode)] static extern int GetWindowTextLengthW(IntPtr hwnd);
  [DllImport("kernel32.dll")] static extern IntPtr OpenProcess(uint access,bool inherit,uint pid);
@@ -25,14 +27,26 @@ public static class StyxWindowProbe {
  [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr hwnd,out Rect rect);
  [DllImport("user32.dll")] static extern bool PrintWindow(IntPtr hwnd,IntPtr dc,uint flags);
  public class Proof {
-  public string hwnd,pid,start_time,user_sid,title;
+  public string hwnd,pid,start_time,user_sid,title,thread_desktop;
   public uint session_id;
-  public bool same_user;
+  public bool same_user,thread_receiving;
+ }
+ static void VerifyTargetDesktop(uint thread) {
+  var desktop=GetThreadDesktop(thread); // borrowed handle: never close or switch it
+  if(desktop==IntPtr.Zero)throw new InvalidOperationException();
+  uint needed;var buffer=Marshal.AllocHGlobal(512);
+  try {
+   if(!GetUserObjectInformationW(desktop,2,buffer,512,out needed)||needed<2||needed>512||
+    !String.Equals(Marshal.PtrToStringUni(buffer),"Default",StringComparison.Ordinal))throw new InvalidOperationException();
+   if(!GetUserObjectInformationW(desktop,6,buffer,4,out needed)||needed!=4||Marshal.ReadInt32(buffer)!=1)throw new InvalidOperationException();
+  }finally{Marshal.FreeHGlobal(buffer);}
  }
  public static Proof Read(string value) {
   long number;if(!Int64.TryParse(value,out number)||number<=0)throw new InvalidOperationException();
   var hwnd=new IntPtr(number);uint pid,session;
-  if(!IsWindow(hwnd)||!IsWindowVisible(hwnd)||IsIconic(hwnd)||GetWindowThreadProcessId(hwnd,out pid)==0||pid==0)throw new InvalidOperationException();
+  if(!IsWindow(hwnd)||!IsWindowVisible(hwnd)||IsIconic(hwnd))throw new InvalidOperationException();
+  uint thread=GetWindowThreadProcessId(hwnd,out pid);if(thread==0||pid==0)throw new InvalidOperationException();
+  VerifyTargetDesktop(thread);
   var process=OpenProcess(0x1000,false,pid); // PROCESS_QUERY_LIMITED_INFORMATION
   if(process==IntPtr.Zero)throw new InvalidOperationException();
   IntPtr token=IntPtr.Zero;
@@ -45,8 +59,9 @@ public static class StyxWindowProbe {
     if(owner.User==null||self.User==null||!owner.User.Equals(self.User))throw new InvalidOperationException();
     int length=GetWindowTextLengthW(hwnd);if(length<0||length>=32767)throw new InvalidOperationException();
     var title=new StringBuilder(32768);int copied=GetWindowTextW(hwnd,title,title.Capacity);
-    uint current;if(copied<0||copied>=32767||GetWindowThreadProcessId(hwnd,out current)==0||current!=pid||!IsWindow(hwnd))throw new InvalidOperationException();
-    return new Proof{hwnd=value,pid=pid.ToString(),start_time=created.ToString(),session_id=session,user_sid=owner.User.Value,same_user=true,title=title.ToString()};
+    uint current;if(copied<0||copied>=32767||GetWindowThreadProcessId(hwnd,out current)!=thread||current!=pid||!IsWindow(hwnd))throw new InvalidOperationException();
+    VerifyTargetDesktop(thread);
+    return new Proof{hwnd=value,pid=pid.ToString(),start_time=created.ToString(),session_id=session,user_sid=owner.User.Value,same_user=true,title=title.ToString(),thread_desktop="Default",thread_receiving=true};
    }
   }finally{if(token!=IntPtr.Zero)CloseHandle(token);CloseHandle(process);}
  }

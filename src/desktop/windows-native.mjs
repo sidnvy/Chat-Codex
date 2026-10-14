@@ -29,7 +29,7 @@ export function createWindowsNativeProbe(run){
    raw.before.session_generation=session.session_id;
    if(operation==='window')return raw.before;
    const p=raw.before;
-   return {identity:{hwnd:p.hwnd,pid:p.pid,start_time:p.start_time,session_id:p.session_id,session_generation:session.session_id,user_sid:p.user_sid,title_digest:hash(p.title)},image:{mimeType:'image/png',data:raw.png}};
+   return {identity:{hwnd:p.hwnd,pid:p.pid,start_time:p.start_time,session_id:p.session_id,session_generation:session.session_id,user_sid:p.user_sid,thread_desktop:p.thread_desktop,thread_receiving:p.thread_receiving,title_digest:hash(p.title)},image:{mimeType:'image/png',data:raw.png}};
   }catch(e){throw new DesktopError(e instanceof DesktopError?e.code:'stale_target','Native evidence unavailable');}
   finally{await rm(directory,{recursive:true,force:true});}
  }
