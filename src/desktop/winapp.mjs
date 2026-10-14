@@ -1,6 +1,10 @@
-import {DesktopError} from './contract.mjs';
+import {DesktopError} from './primitives.mjs';
+import {createHash} from 'node:crypto';
 import {localDesktopExec,parseCommandJson} from './exec.mjs';
 
+const digest=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
+const fingerprint=e=>digest(['selector','type','name','automationId','className'].map(k=>e[k]??null));
+const safeSelector=s=>typeof s==='string'&&s.length>0&&s.length<=128&&!/^[-@]/.test(s);
 const PID=/^[1-9][0-9]{0,9}$/;
 function processId(value){
  const id=typeof value==='number'&&Number.isSafeInteger(value)?String(value):value;
@@ -52,7 +56,7 @@ function unwrapElements(data,selected){
 }
 function flattenElements(roots){
  if(roots.length>1000)throw new DesktopError('invalid_driver_response','WinApp element tree exceeds inspection bounds');
- const pending=roots.map(element=>({element,depth:0})).reverse(),elements=[],promoted=[],ids=new Set();
+ const pending=roots.map(element=>({element,depth:0})).reverse(),elements=[],promoted=[],evidence=[],ids=new Set();
  let visited=0;
  while(pending.length){
   const {element:e,depth}=pending.pop();
@@ -62,7 +66,8 @@ function flattenElements(roots){
    if(ids.has(id))throw new DesktopError('invalid_driver_response','Duplicate WinApp element selector');
    ids.add(id);
    if(elements.length<100){
-    elements.push({id,role:String(e.role??e.type??e.controlType??'').slice(0,80),label:String(e.name??e.label??'').slice(0,160)});
+    evidence.push({id,fingerprint:fingerprint(e),type:e.type,enabled:e.isEnabled===true,offscreen:e.isOffscreen===true,invokable:e.isInvokable===true});
+    elements.push({id,role:String(e.role??e.type??e.controlType??'').slice(0,80),label:String(e.name??e.label??'').slice(0,160),...(typeof e.value==='string'?{value:e.value.slice(0,200)}:{})});
     if(typeof e.automationId==='string'&&e.selector===e.automationId){
      if(typeof e.type!=='string'||!e.type||e.type.length>80||(e.name!=null&&(typeof e.name!=='string'||e.name.length>4096)))
       throw new DesktopError('invalid_driver_response','Promoted selector lacks bounded exact identity');
@@ -76,11 +81,12 @@ function flattenElements(roots){
    for(let i=e.children.length-1;i>=0;i--)pending.push({element:e.children[i],depth:depth+1});
   }
  }
- return {elements,promoted};
+ return {elements,promoted,evidence};
 }
 export class WinappDesktop {
- constructor(run=localDesktopExec,sessionProbe=async()=>false){
+ constructor(run=localDesktopExec,sessionProbe=async()=>false,{windowProbe=null,captureProbe=null,maxImageBytes=393216}={}){
   this.run=run;this.sessionProbe=sessionProbe;this.driver='winapp';
+  this.windowProbe=windowProbe;this.captureProbe=captureProbe;this.maxImageBytes=maxImageBytes;
  }
  async call(args){
   const payload=parseCommandJson(await this.run('winapp',['ui',...args,'--json']),this.driver);
@@ -88,9 +94,25 @@ export class WinappDesktop {
   return payload?.data??payload;
  }
  async listWindows(){
-  const raw=windowArray(await this.call(['list-windows']));
+  const data=await this.call(['list-windows']),raw=windowArray(data);
   const windows=raw.map(projectWindow).filter(Boolean);
-  return {windows,truncated:raw.length>100};
+  const duplicate=new Set(windows.map(w=>w.hwnd)).size!==windows.length;
+  return {windows,truncated:raw.length>100||windows.length!==raw.length||duplicate||
+   data?.truncated===true||data?.complete===false||data?.hasMore===true};
+ }
+ async verifiedWindows({title}={}){
+  if(!this.windowProbe)throw new DesktopError('driver_unavailable','Native inventory proof required');
+  const inventory=await this.observe({mode:'windows'}),output=[];let incomplete=inventory.truncated;
+  for(const w of inventory.windows){
+   if(title!==undefined&&w.title!==title)continue;
+   try{
+    const proof=await this.nativeWindow(w.hwnd);
+    if(proof.pid!==w.pid)throw new DesktopError('stale_target','Native owner mismatch');
+    if(title!==undefined&&proof.title!==title)continue;
+    output.push({...w,title:proof.title.slice(0,128),title_truncated:proof.title.length>128});
+   }catch{incomplete=true;}
+  }
+  return {...inventory,windows:output,truncated:incomplete};
  }
  async session(){
   const proof=await this.sessionProbe();
@@ -118,6 +140,27 @@ export class WinappDesktop {
   if(windows.filter(w=>w.hwnd===hwnd).length!==1)throw new DesktopError('invalid_driver_response','Duplicate HWND identity');
   return selected;
  }
+ async nativeWindow(hwnd){
+  if(!this.windowProbe)return null;
+  const p=await this.windowProbe(hwnd);
+  if(!p||p.hwnd!==hwnd||!processId(p.pid)||!/^[1-9][0-9]{0,19}$/.test(p.start_time)||
+   !Number.isInteger(p.session_id)||p.session_id<=0||p.session_id>=0xffffffff||typeof p.session_generation!=='string'||!/^[a-f0-9]{64}$/.test(p.session_generation)||p.same_user!==true||p.thread_desktop!=='Default'||p.thread_receiving!==true||
+   typeof p.user_sid!=='string'||!/^S-1-[0-9]+(?:-[0-9]+){1,15}$/.test(p.user_sid)||
+   typeof p.title!=='string'||p.title.length>32767)
+   throw new DesktopError('stale_target','Native window identity unavailable');
+  const identity={hwnd,pid:processId(p.pid),start_time:p.start_time,session_id:p.session_id,session_generation:p.session_generation,user_sid:p.user_sid,thread_desktop:p.thread_desktop,thread_receiving:p.thread_receiving,title_digest:digest(p.title)};
+  Object.defineProperty(identity,'title',{value:p.title});return identity;
+ }
+ async assertNative(hwnd,expected){
+  if(this.windowProbe&&digest(await this.nativeWindow(hwnd))!==digest(expected))throw new DesktopError('stale_target','Native window identity changed');
+ }
+ async captureWindow(selected,identity){
+  const captured=await this.captureProbe(selected.hwnd);
+  if(digest(captured?.identity)!==digest(identity))throw new DesktopError('stale_target','Capture identity changed');
+  const png=Buffer.from(captured?.image?.data??'','base64');
+  if(png.length<100||png.length>this.maxImageBytes||!png.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))throw new DesktopError('invalid_capture','Invalid PNG');
+  return {mimeType:'image/png',data:png.toString('base64')};
+ }
  async observe({mode,window_id}){
   if(mode==='windows'){
    const {windows,truncated}=await this.listWindows();
@@ -125,13 +168,18 @@ export class WinappDesktop {
   }
   const session=await this.session();
   const selected=await this.exactWindow(window_id);
-  const data=await this.call(['inspect','-w',selected.hwnd,'--interactive']);
-  const {elements,promoted}=flattenElements(unwrapElements(data,selected));
+  const identity=await this.nativeWindow(selected.hwnd);
+  if(identity&&identity.pid!==selected.pid)throw new DesktopError('stale_target','Native owner mismatch');
+  if(identity){selected.title=identity.title.slice(0,128);selected.title_truncated=identity.title.length>128;}
+  const data=await this.call(['inspect','-w',selected.hwnd,...(this.windowProbe?['--depth','8']:['--interactive'])]);
+  const {elements,promoted,evidence}=flattenElements(unwrapElements(data,selected));
+  const image=this.captureProbe?await this.captureWindow(selected,identity):null;
   const current=await this.exactWindow(window_id);
   if(current.pid!==selected.pid)throw new DesktopError('stale_target','HWND was reused during observation');
   if(await this.session()!==session)throw new DesktopError('stale_session','Windows interactive session changed');
-  return {driver:this.driver,window:selected,elements,
-   receipt:{hwnd:selected.hwnd,pid:selected.pid,session_id:session,element_ids:elements.map(e=>e.id),promoted_elements:promoted,observed_at:Date.now()}};
+  await this.assertNative(selected.hwnd,identity);
+  return {driver:this.driver,window:selected,elements,...(image?{image}:{}),
+   receipt:{hwnd:selected.hwnd,pid:selected.pid,session_id:session,element_ids:elements.map(e=>e.id),promoted_elements:this.windowProbe?promoted.map(({name,...e})=>({...e,name_digest:digest(name)})):promoted,...(identity?{identity,element_evidence:evidence}:{}),observed_at:Date.now()}};
  }
  async act(receipt,action){
   const session=await this.session();
@@ -145,6 +193,16 @@ export class WinappDesktop {
   const current=await this.exactWindow(receipt.hwnd);
   if(receipt.pid!==current.pid)throw new DesktopError('stale_target','HWND was reused by another process');
   let selector=action.element_id;
+  if(this.windowProbe){
+   if(!safeSelector(selector))throw new DesktopError('stale_target','Unsafe selector');
+   await this.assertNative(receipt.hwnd,receipt.identity);
+   const inspect=await this.call(['inspect','-w',receipt.hwnd,'--depth','8']);
+   const freshElements=flattenElements(unwrapElements(inspect,current)).evidence;
+   const match=freshElements.find(e=>e.id===selector),old=receipt.element_evidence?.find(e=>e.id===selector);
+   if(!match||!old||match.fingerprint!==old.fingerprint||!match.enabled||match.offscreen)throw new DesktopError('stale_target','Element identity or state changed');
+   if(action.type==='invoke'&&!match.invokable)throw new DesktopError('unsupported_action','Element is not invokable');
+   if(action.type==='set_value'&&(match.type!=='Edit'||typeof action.value!=='string'||action.value.length>500||/^[-@]/.test(action.value)||action.value.includes('\0')))throw new DesktopError('unsupported_action','Unsupported edit value');
+  }
   const promoted=receipt.promoted_elements?.find(e=>e.id===selector);
   if(promoted){
    // --type selects upstream's constrained query path, which retains runtime-ID
@@ -152,7 +210,7 @@ export class WinappDesktop {
    const search=await this.call(['search',selector,'-w',receipt.hwnd,'--type',promoted.type,'--max','2']);
    const match=search?.matches?.[0];
    if(search?.matchCount!==1||search?.hasMore!==false||!Array.isArray(search.matches)||search.matches.length!==1||
-    match?.automationId!==promoted.automation_id||match?.type!==promoted.type||(match?.name??null)!==promoted.name||
+    match?.automationId!==promoted.automation_id||match?.type!==promoted.type||(promoted.name_digest?digest(match?.name??null)!==promoted.name_digest:(match?.name??null)!==promoted.name)||
     typeof match?.selector!=='string'||!CANONICAL.test(match.selector)||
     (match.hwnd!==undefined&&handle(match.hwnd)!==receipt.hwnd)||
     (match.windowHandle!==undefined&&handle(match.windowHandle)!==receipt.hwnd))
@@ -164,6 +222,7 @@ export class WinappDesktop {
    if(after.pid!==receipt.pid)throw new DesktopError('stale_target','HWND changed during selector resolution');
   }
   if(await this.session()!==session)throw new DesktopError('stale_session','Windows interactive session changed');
+  await this.assertNative(receipt.hwnd,receipt.identity);
   if(!fresh())throw new DesktopError('stale_target','Windows UIA observation expired before dispatch');
   // Explicit invoke forbids WinApp's automatic pattern/ancestor fallback.
   // Once native input is entered, a malformed receipt/error cannot prove no dispatch.

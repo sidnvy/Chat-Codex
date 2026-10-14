@@ -33,7 +33,8 @@
     "./desktop/contract": "./src/desktop/contract.mjs",
     "./desktop/hyprland-worker": "./src/desktop/hyprland-worker.mjs",
     "./desktop/peekaboo-worker": "./src/desktop/peekaboo-worker.mjs",
-    "./desktop/macos-session": "./src/desktop/macos-session.mjs"
+    "./desktop/macos-session": "./src/desktop/macos-session.mjs",
+    "./desktop/windows-worker": "./src/desktop/windows-worker.mjs"
   },
   "files": [
     "src/",
