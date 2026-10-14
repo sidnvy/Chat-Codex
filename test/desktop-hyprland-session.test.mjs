@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import {HyprlandDesktop} from '../src/desktop/hyprland.mjs';
 
 function fixture(){
- const state={session:'compositor-generation-one',lock:{locked:false},pid:21,title:'Scratch',afterCapture:null,dispatches:[]};
+ const state={session:'compositor-generation-one',lock:{locked:false},pid:21,title:'Scratch',afterCapture:null,afterDispatch:null,dispatches:[]};
  const window=()=>({address:'0x123',pid:state.pid,title:state.title,class:'scratch',at:[10,20],size:[200,100],mapped:true});
  const run=async(command,args)=>{
   if(command==='hyprctl'){
@@ -17,7 +17,7 @@ function fixture(){
    const png=Buffer.alloc(100);Buffer.from([137,80,78,71,13,10,26,10]).copy(png);
    await fs.writeFile(args.at(-1),png);
    state.afterCapture?.();
-  }else state.dispatches.push(command);
+  }else {state.dispatches.push(command);state.afterDispatch?.();}
   return '';
  };
  const driver=new HyprlandDesktop(run,()=>state.session);
@@ -59,4 +59,13 @@ test('Hyprland requires process evidence and preserves valid observed dispatch',
  assert.equal(receipt.pid,21);assert.equal(receipt.session_id,(await driver.status()).session_id);
  assert.equal((await driver.act(receipt,{type:'type',text:'hello'})).outcome,'dispatched_unverified');
  assert.deepEqual(state.dispatches,['wtype']);
+});
+
+
+test('Hyprland reports uncertain outcome when target changes after pointer movement',async()=>{
+ const {state,driver,observe}=fixture();const {receipt}=await observe();
+ state.afterDispatch=()=>state.pid++;
+ const result=await driver.act(receipt,{type:'click',x:5,y:5});
+ assert.equal(result.outcome,'outcome_unknown');assert.equal(result.verified,false);
+ assert.deepEqual(state.dispatches,['ydotool']); // movement only, never a blind click
 });

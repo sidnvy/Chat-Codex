@@ -84,8 +84,13 @@ export class HyprlandDesktop {
    const {x,y,width,height}=receipt.geometry;
    if(action.x>=width||action.y>=height)throw new DesktopError('out_of_bounds','Click must be inside captured window');
    await this.run('ydotool',['mousemove','--absolute','-x',String(x+action.x),'-y',String(y+action.y)]);
-   await this.assertReceipt(receipt);
-   await this.run('ydotool',['click','0xC0']);
+   try{
+    await this.assertReceipt(receipt);
+    await this.run('ydotool',['click','0xC0']);
+   }catch{
+    // Pointer movement has already happened; never describe this as no dispatch.
+    return {outcome:'outcome_unknown',verified:false,driver:this.driver};
+   }
   }else throw new DesktopError('unsupported_action','Hyprland supports text, key and bounded coordinate click only');
   return {outcome:'dispatched_unverified',verified:false,driver:this.driver};
  }
