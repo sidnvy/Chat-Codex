@@ -30,7 +30,7 @@ async function fixture(t,{withDocker=true}={}){
  };
  const http=async(url,options)=>{
   seen.push(['http',url,options.method]);
-  return {ok:true,async json(){return {ok:true}}};
+  return {ok:true,async json(){return {ok:true,scope:'process only'}}};
  };
  const opts={configFile,platform:'linux',nodeVersion:'22.10.0',uid:1000,command,http};
  return {priv,project,configFile,tokenFile,config,opts,seen};
@@ -83,7 +83,7 @@ test('doctor does not silently require Docker for an explicitly Host-only config
 test('doctor reports unsupported OS/root and does not claim a healthy server proves auth',async t=>{
  const f=await fixture(t);
  const report=await runDoctor({...f.opts,platform:'win32',uid:0,
-  http:async()=>({ok:true,json:async()=>({ok:true})})});
+  http:async()=>({ok:true,json:async()=>({ok:true,scope:'process only'})})});
  assert.equal(report.overall,'blocked');
  assert.equal(status(report,'platform'),'blocked');
  assert.equal(status(report,'privileges'),'blocked');
@@ -103,4 +103,35 @@ test('doctor executable emits parseable, secret-free JSON and rejects unknown fl
  const invalid=spawnSync(process.execPath,[script,'--unexpected'],{env,encoding:'utf8',timeout:10000});
  assert.equal(invalid.status,2);
  assert.match(invalid.stderr,/Usage:/);
+});
+test('doctor rejects structurally valid config that the actual Registry cannot admit',async t=>{
+ const f=await fixture(t);
+ const extra=path.join(f.project,'child');
+ await fs.mkdir(extra);
+ const cases=[
+  ['missing Docker settings',{...f.config,docker:undefined}],
+  ['wrong Project reference',{...f.config,environments:[{id:'dev',project:'unknown',provider:'docker'}]}],
+  ['relative Project directory',{...f.config,projects:[{id:'default',path:'relative/project'}]}],
+  ['Project inside private directory',{...f.config,projects:[{id:'default',path:f.priv}]}],
+  ['overlapping Project roots',{...f.config,projects:[{id:'default',path:f.project},{id:'child',path:extra}]}]
+ ];
+ for(const [label,invalid] of cases){
+  await fs.writeFile(f.configFile,JSON.stringify(invalid),{mode:0o600});
+  const report=await runDoctor(f.opts);
+  assert.equal(status(report,'configuration'),'blocked',label);
+  assert.equal(report.overall,'blocked',label);
+  assert.equal(JSON.stringify(report).includes('unknown'),false,'Private catalog identity must not leak');
+ }
+});
+test('doctor distinguishes the configured Styx process from an unrelated HTTP responder',async t=>{
+ const f=await fixture(t);
+ const wrong=await runDoctor({...f.opts,http:async()=>({
+  ok:true,json:async()=>({ok:true,scope:'unrelated process'})
+ })});
+ assert.equal(status(wrong,'local_server'),'action_required');
+ assert.equal(wrong.overall,'action_required');
+ const legit=await runDoctor({...f.opts,http:async()=>({
+  ok:true,json:async()=>({ok:true,scope:'process only'})
+ })});
+ assert.equal(status(legit,'local_server'),'ready');
 });

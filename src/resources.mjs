@@ -22,10 +22,10 @@ export const configSchema=z.object({
 }).strict();
 const contains=(a,b)=>a===b||b.startsWith(a+path.sep);
 function unique(rows,kind){if(new Set(rows.map(x=>x.id)).size!==rows.length)throw Error('Duplicate '+kind+' id');}
-export async function createRegistry(raw,configFile) {
+export async function createRegistry(raw,configFile,{warnHostAccess=true}={}) {
  const cfg=configSchema.parse(raw);
  unique(cfg.projects,'project');unique(cfg.hosts,'host');unique(cfg.environments,'environment');
- if(cfg.hosts.length){validateHost();console.warn('UNSANDBOXED Local Host enabled: shell commands have same-user filesystem and network privileges.');}
+ if(cfg.hosts.length){validateHost();if(warnHostAccess)console.warn('UNSANDBOXED Local Host enabled: shell commands have same-user filesystem and network privileges.');}
  if(cfg.environments.length&&!cfg.docker)throw Error('Docker settings required for environment provider');
  const privateDir=await fs.realpath(path.dirname(configFile));
  const source=await fs.realpath(fileURLToPath(new URL('..',import.meta.url)));

@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {execFile as execFileCallback} from 'node:child_process';
 import {promisify} from 'node:util';
-import {configSchema} from './resources.mjs';
+import {configSchema,createRegistry} from './resources.mjs';
 
 const execFile=promisify(execFileCallback);
 const STATUS=['ready','action_required','blocked','warning','not_checked'];
@@ -55,6 +55,10 @@ export async function runDoctor({
       const raw=JSON.parse(await files.readFile(configFile,'utf8'));
       const parsed=configSchema.safeParse(raw);
       if(!parsed.success)throw new Error('invalid_config_schema');
+      // Shared runtime validation also checks missing providers, project
+      // references, unsafe paths, overlapping roots and OS Host policy.
+      // Do not emit the normal Host warning into machine-readable diagnostics.
+      await createRegistry(raw,configFile,{warnHostAccess:false});
       config=parsed.data;
       add('configuration','ready','Configuration schema and file permissions are valid.');
     }catch{
@@ -131,7 +135,7 @@ export async function runDoctor({
         method:'GET',redirect:'error',signal:AbortSignal.timeout(1500)
       });
       const body=response.ok?await response.json():null;
-      if(!response.ok||body?.ok!==true)throw new Error('not_healthy');
+      if(!response.ok||body?.ok!==true||body?.scope!=='process only')throw new Error('not_healthy');
       add('local_server','ready','Loopback Chat-Codex process is responding (not an MCP authentication test).');
     }catch{
       add('local_server','action_required','Chat-Codex local HTTP health check is not ready.',
