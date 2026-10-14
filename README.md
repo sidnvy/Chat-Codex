@@ -1,4 +1,6 @@
-# Chat-Codex
+# Styx (formerly Chat-Codex)
+
+> **Repository migration in progress.** The released package, MCP Server identity and portable Plugin still use `chat-codex` / `Chat-Codex` at v0.3.0. Renaming the repository does **not** update or reconnect existing installations. See [Styx Foundation RFC](docs/RFC-0002-STYX-FOUNDATION.md).
 
 **ChatGPT-native, self-hosted development workspace** with one typed execution API for persistent Hosts and disposable Environments.
 
@@ -46,8 +48,8 @@ Execution receipts preserve stdout, stderr, exit_code, termination, duration_ms.
 - Your own ChatGPT account/workspace/plugin authorization and a secure MCP endpoint or tunnel for ChatGPT integration.
 
 ~~~sh
-git clone https://github.com/sidnvy/Chat-Codex.git
-cd Chat-Codex
+git clone https://github.com/sidnvy/Styx.git
+cd Styx
 npm ci --ignore-scripts --no-audit --no-fund
 npm test
 
