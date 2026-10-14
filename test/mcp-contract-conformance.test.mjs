@@ -116,8 +116,7 @@ test('Desktop access is not inherited from an admitted unsandboxed Host',async t
  }
 });
 test('comparison classifies material schema/annotation changes without leaking values',()=>{
- const baseline=normalizeToolSurface(
-  names.map(name=>({name,...expected.tools[name]})),{names});
+ const baseline=structuredClone(expected); // Already a normalized snapshot with nullable unspecified flags.
  assert.deepEqual(compareToolSurfaces(baseline,expected).summary,
   {left_total:24,right_total:24,shared:24,only_left:0,only_right:0,changed:0});
  const other=structuredClone(expected);
@@ -295,4 +294,15 @@ test('malformed non-object annotation containers fail rather than becoming absen
   const invalid=structuredClone(correct);invalid.tools.test.annotations=value;
   assert.throws(()=>compareToolSurfaces(invalid,correct),/annotation container/i);
  }
+});
+
+test('raw tool annotations reject explicit null while normalized snapshots retain absent sentinel',()=>{
+ const valid=normalizeToolSurface([{name:'probe',inputSchema:{type:'object'}}]);
+ assert.equal(valid.tools.probe.annotations.readOnlyHint,null);
+ assert.equal(compareToolSurfaces(valid,valid).compatible_structure,true);
+ for(const flag of ['readOnlyHint','destructiveHint','idempotentHint','openWorldHint']){
+  assert.throws(()=>normalizeToolSurface([{name:'probe',inputSchema:{type:'object'},annotations:{[flag]:null}}]),/Invalid annotation/);
+ }
+ const invalid=structuredClone(valid);invalid.tools.probe.annotations.readOnlyHint='false';
+ assert.throws(()=>compareToolSurfaces(invalid,valid),/Invalid annotation/);
 });

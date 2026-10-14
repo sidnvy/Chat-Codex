@@ -65,7 +65,7 @@ function inputTools(raw){
  if(!Array.isArray(value))throw Error('MCP tool snapshot must contain a tools array');
  return value;
 }
-export function normalizeToolSurface(raw,{names}={}){
+function normalizeSurface(raw,{names,allowNullAnnotations=false}={}){
  const tools=inputTools(raw),wanted=names?new Set(names):null;
  if(wanted&&(wanted.size!==names.length||[...wanted].some(s=>!SAFE_NAME.test(s))))
   throw Error('Invalid or duplicated expected tool names');
@@ -84,7 +84,7 @@ export function normalizeToolSurface(raw,{names}={}){
    // Deliberately record null for missing annotations: "unspecified" is not
    // equivalent to an explicit false in a cross-gateway comparison.
    const observed=tool.annotations?.[flag];
-   if(observed!==undefined&&observed!==null&&typeof observed!=='boolean')
+   if(observed!==undefined&&!(typeof observed==='boolean'||(allowNullAnnotations&&observed===null)))
     throw Error('Invalid annotation for '+tool.name);
    annotations[flag]=observed??null;
   }
@@ -94,15 +94,18 @@ export function normalizeToolSurface(raw,{names}={}){
  if(missing.length)throw Error('Required MCP tool names missing: '+missing.join(','));
  return {contract_version:TOOL_CONTRACT_VERSION,tools:Object.fromEntries(Object.entries(table).sort(([a],[b])=>a.localeCompare(b)))};
 }
+export function normalizeToolSurface(raw,{names}={}){
+ return normalizeSurface(raw,{names}); // Raw protocol booleans are nonnullable.
+}
 function validateNormalized(snapshot){
  if(!snapshot||snapshot.contract_version!==TOOL_CONTRACT_VERSION||
    !snapshot.tools||typeof snapshot.tools!=='object'||Array.isArray(snapshot.tools))
   throw Error('Invalid normalized tool contract snapshot');
- return normalizeToolSurface(Object.entries(snapshot.tools).map(([name,data])=>{
+ return normalizeSurface(Object.entries(snapshot.tools).map(([name,data])=>{
   if(!data||typeof data!=='object'||Array.isArray(data)||Object.hasOwn(data,'name'))
    throw Error('Invalid normalized tool entry');
   return {...data,name}; // Map key is authoritative; no nested name override.
- }));
+ }),{allowNullAnnotations:true});
 }
 function walk(a,b,p,out,maxChanges){
  if(out.length>=maxChanges)return;
