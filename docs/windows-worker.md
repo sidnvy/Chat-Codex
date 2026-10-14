@@ -28,3 +28,5 @@ New native code is based on the public API contracts, not a port of a private wo
 Native compilation/capture/action acceptance on Windows is a required release gate. Linux fixture tests alone do not establish this gate.
 
 Inventory preserves explicit provider incompleteness and marks duplicate or malformed rows incomplete. Exact-title filtering can exclude unrelated inaccessible rows; an inaccessible matching candidate remains incomplete. Confirmed foreign-scope native refusals are conservatively incomplete too, rather than asserting a complete inventory.
+
+The `windows-native-compilation` CI job compiles the exact embedded session and window C# declarations using Windows PowerShell. A shared source builder supplies both the runtime worker and this compile-only check. The check invokes no session Read, HWND Read, capture or input, and changes no execution policy. Non-Windows runs explicitly skip it; that skip is not a compilation pass. Native acceptance remains a separate gate.
