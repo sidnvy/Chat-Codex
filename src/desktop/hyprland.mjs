@@ -22,7 +22,7 @@ export class HyprlandDesktop {
   const raw=await this.read('clients');
   if(!Array.isArray(raw))throw new DesktopError('invalid_driver_response','Hyprland clients must be an array');
   return raw.filter(x=>x.mapped!==false&&x.hidden!==true).slice(0,100).map(x=>({
-   id:bounded(x.address),title:bounded(x.title),app:bounded(x.class),
+   id:bounded(x.address),title:bounded(x.title),title_truncated:String(x.title??'').length>128,app:bounded(x.class),
    workspace:bounded(x.workspace?.name),geometry:{x:x.at?.[0],y:x.at?.[1],width:x.size?.[0],height:x.size?.[1]}
   }));
  }

@@ -16,7 +16,7 @@ The canonical behavioral fixture is `contracts/desktop-behavior-v1.json`; the ex
 | --- | --- |
 | Authorization | Default off; unknown targets and revoked grants cannot reach Desktop driver IO |
 | Readiness | Host transport availability is distinct from an unlocked, permission-granted interactive session |
-| Observation | The selected window ID must match the observation receipt; window inventory truncation must be explicit |
+| Observation | The selected window ID and all receipt window identifiers (window_id/HWND) must agree; inventory and title truncation must be explicit |
 | Snapshot | At most 64 in memory; UUID bound to target and selected driver; 30,000 ms expiry, including the exact boundary |
 | Session | If a driver exposes a session identity, it is pinned between observation and action; driver must revalidate exact window identity |
 | Action | Exactly one bounded action; consume the snapshot before dispatch, including on errors and racing calls |

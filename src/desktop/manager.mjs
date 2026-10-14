@@ -42,6 +42,11 @@ export class DesktopManager {
   }
   if(observed?.window?.id!==a.window_id||!observed.receipt||typeof observed.receipt!=='object')
    throw new DesktopError('invalid_driver_response','Exact window identity or receipt is missing');
+  const receiptIds=[observed.receipt.window_id,observed.receipt.hwnd].filter(x=>x!==undefined);
+  if(!receiptIds.length||receiptIds.some(x=>{
+   const id=typeof x==='string'?x:typeof x==='number'&&Number.isSafeInteger(x)?String(x):null;
+   return id!==a.window_id;
+  }))throw new DesktopError('invalid_driver_response','Receipt does not bind the requested window');
   if(observed.image){
    const {mimeType,data}=observed.image;
    if(mimeType!=='image/png'||typeof data!=='string'||Buffer.byteLength(data,'base64')>DESKTOP_IMAGE_LIMIT_BYTES)
@@ -85,7 +90,9 @@ export class DesktopManager {
   for(;;){
    const status=await driver.status();
    if(!status.ready)throw new DesktopError(status.state,'Desktop became unavailable: '+status.state);
+   if(this.clock()>=end)return {target:a.target,matched:false,termination:'timeout'};
    const state=await driver.observe({mode:'windows'});
+   if(this.clock()>=end)return {target:a.target,matched:false,termination:'timeout'};
    if(!Array.isArray(state?.windows)||state.truncated===true)
     throw new DesktopError('incomplete_observation','Window inventory cannot prove an exact match');
    const match=state.windows.find(w=>w.title_truncated!==true&&w.title===a.condition.title);
