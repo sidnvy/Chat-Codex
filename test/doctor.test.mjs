@@ -32,7 +32,7 @@ async function fixture(t,{withDocker=true}={}){
   seen.push(['http',url,options.method]);
   return {ok:true,async json(){return {ok:true,scope:'process only'}}};
  };
- const opts={configFile,platform:'linux',nodeVersion:'22.10.0',uid:1000,command,http};
+ const opts={configFile,platform:'linux',nodeVersion:'22.10.0',uid:process.getuid(),command,http};
  return {priv,project,configFile,tokenFile,config,opts,seen};
 }
 const status=(result,id)=>result.checks.find(c=>c.id===id)?.status;
