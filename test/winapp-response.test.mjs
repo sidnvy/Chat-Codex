@@ -26,7 +26,7 @@ test('WinApp top-level list-windows arrays preserve HWND and report real count',
  assert.deepEqual(observed.receipt.hwnd,'223344');
  await driver.act(observed.receipt,{type:'invoke',element_id:'btn-save-1234'});
  assert.deepEqual(calls.find(args=>args[1]==='inspect').slice(2,4),['-w','223344']);
- assert.deepEqual(calls.find(args=>args[1]==='invoke').slice(2),['btn-save-1234','-w','223344','--json']);
+ assert.deepEqual(calls.find(args=>args[1]==='invoke').slice(2),['btn-save-1234','--action','invoke','-w','223344','--json']);
  assert.equal(calls.some(args=>args.includes('-a')),false);
 });
 test('WinApp exact target rejects titles, vanished HWNDs, and changed process ownership',async()=>{

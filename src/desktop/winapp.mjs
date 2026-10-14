@@ -49,6 +49,27 @@ function unwrapElements(data,selected){
  } // older response compatibility
  throw new DesktopError('invalid_driver_response','WinApp inspect returned no recognized elements envelope');
 }
+function flattenElements(roots){
+ if(roots.length>1000)throw new DesktopError('invalid_driver_response','WinApp element tree exceeds inspection bounds');
+ const pending=roots.map(element=>({element,depth:0})).reverse(),elements=[],ids=new Set();
+ let visited=0;
+ while(pending.length){
+  const {element:e,depth}=pending.pop();
+  if(++visited>1000||depth>32)throw new DesktopError('invalid_driver_response','WinApp element tree exceeds inspection bounds');
+  const id=String(e?.selector??e?.id??e?.elementId??e?.automationId??e?.slug??'');
+  if(id&&id.length<=128){
+   if(ids.has(id))throw new DesktopError('invalid_driver_response','Duplicate WinApp element selector');
+   ids.add(id);
+   if(elements.length<100)elements.push({id,role:String(e.role??e.type??e.controlType??'').slice(0,80),label:String(e.name??e.label??'').slice(0,160)});
+  }
+  if(e?.children!==undefined){
+   if(!Array.isArray(e.children))throw new DesktopError('invalid_driver_response','Malformed WinApp element children');
+   if(pending.length+e.children.length>1000)throw new DesktopError('invalid_driver_response','WinApp element tree exceeds inspection bounds');
+   for(let i=e.children.length-1;i>=0;i--)pending.push({element:e.children[i],depth:depth+1});
+  }
+ }
+ return elements;
+}
 export class WinappDesktop {
  constructor(run=localDesktopExec,sessionProbe=async()=>false){
   this.run=run;this.sessionProbe=sessionProbe;this.driver='winapp';
@@ -97,11 +118,7 @@ export class WinappDesktop {
   const session=await this.session();
   const selected=await this.exactWindow(window_id);
   const data=await this.call(['inspect','-w',selected.hwnd,'--interactive']);
-  const elements=unwrapElements(data,selected).slice(0,100).map(e=>({
-   id:String(e.selector??e.id??e.elementId??e.automationId??e.slug??''),
-   role:String(e.role??e.type??e.controlType??'').slice(0,80),
-   label:String(e.name??e.label??'').slice(0,160)
-  })).filter(e=>e.id&&e.id.length<=128);
+  const elements=flattenElements(unwrapElements(data,selected));
   const current=await this.exactWindow(window_id);
   if(current.pid!==selected.pid)throw new DesktopError('stale_target','HWND was reused during observation');
   if(await this.session()!==session)throw new DesktopError('stale_session','Windows interactive session changed');
@@ -121,8 +138,16 @@ export class WinappDesktop {
   if(receipt.pid!==current.pid)throw new DesktopError('stale_target','HWND was reused by another process');
   if(await this.session()!==session)throw new DesktopError('stale_session','Windows interactive session changed');
   if(!fresh())throw new DesktopError('stale_target','Windows UIA observation expired before dispatch');
-  if(action.type==='invoke')await this.call(['invoke',action.element_id,'-w',receipt.hwnd]);
-  else await this.call(['set-value',action.element_id,action.value,'-w',receipt.hwnd]);
+  // Explicit invoke forbids WinApp's automatic pattern/ancestor fallback.
+  // Once native input is entered, a malformed receipt/error cannot prove no dispatch.
+  try{
+   const result=action.type==='invoke'
+    ?await this.call(['invoke',action.element_id,'--action','invoke','-w',receipt.hwnd])
+    :await this.call(['set-value',action.element_id,action.value,'-w',receipt.hwnd]);
+   const exact=handle(result?.hwnd)===receipt.hwnd&&result?.elementId===action.element_id;
+   const performed=action.type!=='invoke'||(result?.pattern==='InvokePattern'&&result?.requestedAction==='invoke'&&result?.performedAction==='invoke');
+   if(!exact||!performed)return {driver:this.driver,outcome:'outcome_unknown',verified:false};
+  }catch{return {driver:this.driver,outcome:'outcome_unknown',verified:false};}
   return {driver:this.driver,outcome:'dispatched_unverified',verified:false};
  }
 }
