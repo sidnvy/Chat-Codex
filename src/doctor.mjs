@@ -61,10 +61,15 @@ export async function runDoctor({
       // Do not emit the normal Host warning into machine-readable diagnostics.
       config=parsed.data; // Keep parsed Project identities for actionable diagnostics.
       await createRegistry(raw,configFile,{warnHostAccess:false});
-      add('configuration','ready','Configuration schema and file permissions are valid.');
-    }catch{
-      add('configuration','blocked','Configuration cannot be read safely or does not match the schema.',
-        'Check the private config.json file, file mode 0600, and v2 configuration schema.');
+      // The standalone npm launcher registers no optional extensions.
+      if(config.extensions?.length)throw new Error('unverified_extension_grants');
+      add('configuration','ready','Configuration schema, runtime admission and file permissions are valid.');
+    }catch(error){
+      if(error?.message==='unverified_extension_grants')
+        add('configuration','blocked','Extension grants are not installed in the standalone server.',
+          'Remove unsupported extension grants or use a trusted distribution-specific configuration checker.');
+      else add('configuration','blocked','Configuration cannot be read safely or does not match runtime requirements.',
+        'Check the private config.json file, file mode 0600, Project admission and v2 configuration schema.');
     }
   }
 

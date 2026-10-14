@@ -167,3 +167,13 @@ test('doctor retains per-Project recovery guidance when runtime registry admissi
  assert.equal(report.overall,'blocked');
  assert.ok(!JSON.stringify(report).includes(f.project),'Project path must stay private');
 });
+
+test('standalone Doctor blocks declared extensions that default startup cannot register',async t=>{
+ const f=await fixture(t);
+ await fs.writeFile(f.configFile,JSON.stringify({...f.config,extensions:['injected-only']}),{mode:0o600});
+ const result=await runDoctor(f.opts);
+ assert.equal(status(result,'configuration'),'blocked');
+ assert.equal(result.overall,'blocked');
+ assert.match(result.checks.find(x=>x.id==='configuration').next,/distribution-specific/);
+ assert.equal(JSON.stringify(result).includes('injected-only'),false);
+});
