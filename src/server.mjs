@@ -11,6 +11,8 @@ import {TargetRouter} from './router.mjs';
 import {TaskManager} from './tasks.mjs';
 import {searchResources} from './mentions.mjs';
 import {DesktopManager} from './desktop/manager.mjs';
+import {createBuiltInEnvironmentCatalog} from './runtime/providers.mjs';
+import {ExtensionCatalog,registerGrantedExtensions} from './runtime/extensions.mjs';
 import {desktopObserveSchema,desktopActSchema,desktopWaitSchema} from './desktop/contract.mjs';
 
 const empty=z.object({}).strict();
@@ -55,10 +57,13 @@ function renderHtml(template,s){
  .replace('<!--TASKS-->',items(s.tasks,t=>row(t.id,t.status+' � '+t.target.kind+':'+t.target.id)))
  .replace('<!--EXECUTIONS-->',items(s.executions,e=>row(e.id,e.kind+' � '+e.op+' � exit '+(e.exit_code??'unknown')+(e.termination?' ('+e.termination+')':''))));
 }
-export async function start(configFile,{desktopCatalog}={}){
+export async function start(configFile,{desktopCatalog,environmentCatalog=createBuiltInEnvironmentCatalog(),extensionCatalog=new ExtensionCatalog()}={}){
  const raw=JSON.parse(await fs.readFile(configFile,'utf8'));
- const registry=await createRegistry(raw,configFile);
- const router=new TargetRouter(registry);
+ const registry=await createRegistry(raw,configFile,{allowedProviders:environmentCatalog.list()});
+ const grants=extensionCatalog.validateGrants(registry.config.extensions??[]);
+ const grantedEntries=Object.freeze(grants.map(id=>extensionCatalog.get(id)));
+ environmentCatalog.seal();extensionCatalog.seal();
+ const router=new TargetRouter(registry,{environmentCatalog});
  const tasks=await new TaskManager(router).init();
  const desktops=new DesktopManager(registry,desktopCatalog?{catalog:desktopCatalog}:{});
  const port=registry.config.port,privateDir=registry.privateDir;
@@ -143,6 +148,11 @@ export async function start(configFile,{desktopCatalog}={}){
    const html=renderHtml(appTemplate,await snapshot(router,tasks));
    return {contents:[{uri:appUri,mimeType:'text/html;profile=mcp-app',text:html}]};
   });
+  const extensionApi=Object.freeze({
+   listProjects:()=>router.projectsList(),
+   targetStatus:target=>router.status(target),
+  });
+  registerGrantedExtensions(mcp,grantedEntries,extensionApi);
   for(const [kind,entries] of [['host',registry.hosts],['environment',registry.environments],['project',registry.projects]]){
    for(const e of entries.values()){
     const uri='chat-codex://'+kind+'/'+encodeURIComponent(e.id);
