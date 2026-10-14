@@ -9,7 +9,7 @@ const bounded=value=>String(value??'').slice(0,128);
 const invalid=message=>new DesktopError('invalid_driver_response',message);
 const decimal=value=>typeof value==='string'&&/^[1-9][0-9]*$/.test(value);
 export class PeekabooDesktop {
- constructor(run=localDesktopExec,sessionProbe=async()=>null){this.run=run;this.sessionProbe=sessionProbe;this.driver='peekaboo';}
+ constructor(run=localDesktopExec,sessionProbe=async()=>null,clock=()=>Date.now()){this.run=run;this.sessionProbe=sessionProbe;this.clock=clock;this.driver='peekaboo';}
  async call(args){
   const result=parseCommandJson(await this.run('peekaboo',[...args,'--json']),this.driver);
   if(result.success!==true)throw new DesktopError(result.error?.code??'driver_error',String(result.error?.message??'Peekaboo operation failed').slice(0,350));
@@ -71,6 +71,8 @@ export class PeekabooDesktop {
   const window=windows.find(w=>w.id===receipt.window_id);
   if(!window||window.full_title!==receipt.title)throw new DesktopError('stale_target','Window identity or title changed since observation');
   await this.ready(receipt.session_id);
+  const age=this.clock()-receipt.observed_at;
+  if(!Number.isFinite(receipt.observed_at)||age<0||age>=30000)throw new DesktopError('stale_target','Capture expired during target validation');
  }
  async observe({mode,window_id}){
   const session_id=await this.ready();
@@ -82,7 +84,7 @@ export class PeekabooDesktop {
   const matches=inventory.windows.filter(w=>w.id===window_id);
   if(matches.length!==1)throw new DesktopError('target_not_found','Exact window not found uniquely in bounded inventory');
   const window=matches[0];
-  const receipt={window_id,pid:window.pid,title:window.full_title,process_start:window.process_start,session_id};
+  const receipt={window_id,pid:window.pid,title:window.full_title,process_start:window.process_start,session_id,observed_at:this.clock()};
   await this.assertReceipt(receipt);
   const tmp=await fs.mkdtemp(path.join(os.tmpdir(),'styx-peekaboo-'));
   try{

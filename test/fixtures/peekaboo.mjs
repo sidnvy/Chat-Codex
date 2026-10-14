@@ -1,6 +1,6 @@
 import {PeekabooDesktop} from '../../src/desktop/peekaboo.mjs';
 export function peekabooFixture(){
- const state={granted:true,session:{ready:true,session_id:'test-session'},title:'Scratch',pid:42,start:'123456789012345678',calls:[],see:{},mutate:null};
+ const state={now:1000,granted:true,session:{ready:true,session_id:'test-session'},title:'Scratch',pid:42,start:'123456789012345678',calls:[],see:{},mutate:null};
  const run=async(_command,args)=>{
   state.calls.push(args);
   let data={};
@@ -11,5 +11,5 @@ export function peekabooFixture(){
   if(state.mutate)await state.mutate(args,data);
   return JSON.stringify({success:true,data});
  };
- return {state,run,driver:new PeekabooDesktop(run,async()=>state.session)};
+ return {state,run,driver:new PeekabooDesktop(run,async()=>state.session,()=>state.now)};
 }

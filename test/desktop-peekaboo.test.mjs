@@ -95,3 +95,13 @@ test('Peekaboo missing process generation or inventory owner mismatch cannot aut
  await assert.rejects(observe(driver),e=>e.code==='target_not_found');
  assert.equal(state.calls.some(a=>a[0]==='see'),false);
 });
+test('Peekaboo cannot dispatch when its capture expires during an awaited identity lookup',async()=>{
+ const {state,driver}=peekabooFixture();const captured=await observe(driver);
+ let release;const pending=new Promise(resolve=>{release=resolve;});
+ let entered;const started=new Promise(resolve=>{entered=resolve;});
+ state.mutate=async args=>{if(args[0]==='window'){entered();await pending;}};
+ const action=driver.act(captured.receipt,{type:'type',text:'never'});
+ await started;state.now+=30000;release();
+ await assert.rejects(action,e=>e.code==='stale_target');
+ assert.equal(inputCalls(state).length,0);
+});
