@@ -19,7 +19,7 @@ export class PeekabooDesktop {
  async observe({mode,window_id}){
   if(mode==='windows'){
    const data=await this.call(['window','list']);
-   return {driver:this.driver,windows:(data.windows??[]).slice(0,100).map(a=>({id:String(a.id??a.window_id??a.windowId??''),title:String(a.title??''),app:String(a.app??a.applicationName??'')})),truncated:(data.windows??[]).length>100};
+   return {driver:this.driver,windows:(data.windows??[]).slice(0,100).map(a=>({id:String(a.id??a.window_id??a.windowId??''),title:String(a.title??'').slice(0,128),title_truncated:String(a.title??'').length>128,app:String(a.app??a.applicationName??'')})),truncated:(data.windows??[]).length>100};
   }
   // window_id refers to an explicitly selected application bundle/name, not an arbitrary process.
   const selector=/^[0-9]+$/.test(window_id)?['--window-id',window_id]:['--app',window_id];
@@ -32,7 +32,7 @@ export class PeekabooDesktop {
   }));
   return {driver:this.driver,window:{id:window_id,title:String(data.window_title??window_id).slice(0,128),app:window_id},
    elements,receipt:{snapshot_id:data.snapshot_id,window_id},
-   ...(typeof data.screenshot_raw==='string'&&data.screenshot_raw.length<2800000?
+   ...(typeof data.screenshot_raw==='string'&&data.screenshot_raw.length>0?
     {image:{mimeType:'image/png',data:data.screenshot_raw}}:{})};
  }
  async act(receipt,action){

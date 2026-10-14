@@ -14,7 +14,7 @@ function windowArray(data){
 function projectWindow(w){
  const hwnd=handle(w?.hwnd??w?.HWND);
  if(!hwnd)return null; // A title or PID is never an exact-window identity.
- return {id:hwnd,hwnd,title:String(w.title??'').slice(0,128),
+ return {id:hwnd,hwnd,title:String(w.title??'').slice(0,128),title_truncated:String(w.title??'').length>128,
   app:String(w.app??w.processName??w.process_name??'').slice(0,128),
   ...(w.pid!==undefined||w.processId!==undefined?{pid:String(w.pid??w.processId).slice(0,32)}:{})};
 }

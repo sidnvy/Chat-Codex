@@ -18,17 +18,20 @@ export class HyprlandDesktop {
     semantic_elements:false};
   }catch(e){return {driver:this.driver,state:e.code==='driver_unavailable'?'driver_unavailable':'no_session',ready:false,capabilities:[],error:String(e.message).slice(0,200)};}
  }
- async windows(){
+ async inventory(){
   const raw=await this.read('clients');
   if(!Array.isArray(raw))throw new DesktopError('invalid_driver_response','Hyprland clients must be an array');
-  return raw.filter(x=>x.mapped!==false&&x.hidden!==true).slice(0,100).map(x=>({
-   id:bounded(x.address),title:bounded(x.title),app:bounded(x.class),
+  const visible=raw.filter(x=>x.mapped!==false&&x.hidden!==true);
+  const windows=visible.slice(0,100).map(x=>({
+   id:bounded(x.address),title:bounded(x.title),title_truncated:String(x.title??'').length>128,app:bounded(x.class),
    workspace:bounded(x.workspace?.name),geometry:{x:x.at?.[0],y:x.at?.[1],width:x.size?.[0],height:x.size?.[1]}
   }));
+  return {windows,truncated:visible.length>100};
  }
+ async windows(){return (await this.inventory()).windows;}
  async observe({mode,window_id}){
-  const windows=await this.windows();
-  if(mode==='windows')return {driver:this.driver,windows,truncated:windows.length>=100};
+  const {windows,truncated}=await this.inventory();
+  if(mode==='windows')return {driver:this.driver,windows,truncated};
   const window=windows.find(x=>x.id===window_id);
   if(!window)throw new DesktopError('target_not_found','Exact window not found');
   const active=await this.read('activewindow');
