@@ -35,7 +35,7 @@ This adapter uses Hyprland JSON IPC, scoped grim capture, wtype and ydotool. On 
 | macOS / Peekaboo | Optional adapter, unit and protocol contracts | Bridge previously observed on macOS test host; this branch has not executed a verified macOS GUI mutation |
 | Windows / winapp UIA | Optional provisional adapter and contract | Windows GUI session and real UIA act not verified in this branch |
 
-Peekaboo requires a permission-granted Bridge and a trusted exact-window receipt. Native Windows UIA can inspect in some locked sessions, but synthetic input needs an unlocked interactive Desktop. This adapter conservatively refuses mutations without an independently verified session-local Broker. The current Chat-Codex Host Runner is Linux-only; a Windows Coder Agent alone is not sufficient to establish GUI readiness.
+Peekaboo requires a permission-granted Bridge, a trusted native session probe, and a process-generation-bound exact-window receipt; its default probe fails closed. See [Peekaboo adapter boundary](PEEKABOO-ADAPTER.md) for the pinned CLI contract and capture-file checks. Native Windows UIA can inspect in some locked sessions, but synthetic input needs an unlocked interactive Desktop. This adapter conservatively refuses mutations without an independently verified session-local Broker. The current Chat-Codex Host Runner is Linux-only; a Windows Coder Agent alone is not sufficient to establish GUI readiness.
 
 See [Windows onboarding preparation](WINDOWS-ONBOARDING.md) for a read-only Windows preflight.
 

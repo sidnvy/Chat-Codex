@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {DesktopManager} from '../src/desktop/manager.mjs';
 import {HyprlandDesktop} from '../src/desktop/hyprland.mjs';
-import {PeekabooDesktop} from '../src/desktop/peekaboo.mjs';
+import {peekabooFixture} from './fixtures/peekaboo.mjs';
 import {WinappDesktop} from '../src/desktop/winapp.mjs';
 
 function broker(driver,clock=()=>Date.now()){
@@ -50,7 +50,7 @@ test('all built-in window catalogs mark truncated titles so wait cannot treat pr
  const h=await hypr.observe({mode:'windows'});
  assert.equal(h.windows[0].title,long.slice(0,128));
  assert.equal(h.windows[0].title_truncated,true);
- const peek=new PeekabooDesktop(async()=>JSON.stringify({success:true,data:{windows:[{id:123,title:long,app:'demo'}]}}));
+ const {driver:peek,state}=peekabooFixture();state.title=long;
  const p=await peek.observe({mode:'windows'});
  assert.equal(p.windows[0].title,long.slice(0,128));
  assert.equal(p.windows[0].title_truncated,true);
@@ -85,27 +85,17 @@ test('Hyprland inventories distinguish 100 visible windows from overflow',async(
 
 
 test('Peekaboo empty screenshot preserves semantic observation and snapshot-bound action',async()=>{
- const calls=[];
- const peek=new PeekabooDesktop(async(_command,args)=>{
-  calls.push(args);
-  const data=args[0]==='permissions'?{permissions:[{name:'Screen Recording',isGranted:true},{name:'Accessibility',isGranted:true}]}:
-   args[0]==='see'?{snapshot_id:'semantic-snapshot',screenshot_raw:'',ui_elements:[{id:'B1',role:'button',label:'Save'}]}:{};
-  return JSON.stringify({success:true,data});
- });
+ const {driver:peek}=peekabooFixture();
  const d=broker(peek);
  const observed=await d.observe({target,mode:'window',window_id:'123'});
  assert.ok(observed.snapshot_id);
  assert.equal(Object.hasOwn(observed,'image'),false);
  assert.equal(observed.elements[0].id,'B1');
  assert.equal((await d.act({target,snapshot_id:observed.snapshot_id,action:{type:'invoke',element_id:'B1'}})).outcome,'dispatched_unverified');
- assert.deepEqual(calls.at(-1),['click','--on','B1','--snapshot','semantic-snapshot','--json']);
 });
 
-
-test('Peekaboo oversized nonempty captures reach manager validation rather than being omitted',async()=>{
- const peek=new PeekabooDesktop(async(_command,args)=>JSON.stringify({success:true,data:
-  args[0]==='permissions'?{permissions:[{name:'Screen Recording',isGranted:true},{name:'Accessibility',isGranted:true}]}:
-  {snapshot_id:'oversized',screenshot_raw:'A'.repeat(2800000)}}));
+test('Peekaboo unowned screenshot paths fail before manager can mint a snapshot',async()=>{
+ const {driver:peek,state}=peekabooFixture();state.see.screenshot_raw='A'.repeat(2800000);
  const d=broker(peek);
  await assert.rejects(d.observe({target,mode:'window',window_id:'123'}),e=>e.code==='invalid_capture');
  assert.equal(d.snapshots.size,0);

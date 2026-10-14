@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {desktopActionSchema,desktopObserveSchema,desktopActSchema,verifyDesktopDriver,DesktopError} from '../src/desktop/contract.mjs';
 import {DesktopManager} from '../src/desktop/manager.mjs';
 import {HyprlandDesktop} from '../src/desktop/hyprland.mjs';
-import {PeekabooDesktop} from '../src/desktop/peekaboo.mjs';
+import {peekabooFixture} from './fixtures/peekaboo.mjs';
 import {WinappDesktop} from '../src/desktop/winapp.mjs';
 
 const host={kind:'host',id:'desktop-host'},environment={kind:'environment',id:'dev'};
@@ -81,25 +81,15 @@ test('Hyprland native adapter uses JSON IPC and dispatches only focused fingerpr
 });
 
 test('macOS Peekaboo adapter is permission-gated and receipt-pinned',async()=>{
- let granted=false;
- const calls=[];
- const run=async(bin,args)=>{
-  calls.push([bin,...args]);
-  if(args[0]==='permissions')return JSON.stringify({success:true,data:{permissions:[
-   {name:'Screen Recording',isGranted:granted},{name:'Accessibility',isGranted:granted}
-  ]}});
-  if(args[0]==='see')return JSON.stringify({success:true,data:{snapshot_id:'pb-snap',window_title:'Calculator',ui_elements:[{id:'B7',role:'button',label:'7'}]}});
-  return JSON.stringify({success:true,data:{}});
- };
- const d=new PeekabooDesktop(run);
+ const {state,driver:d}=peekabooFixture();
+ state.granted=false;
  assert.equal((await d.status()).state,'permission_denied');
- granted=true;
+ state.granted=true;
  assert.equal((await d.status()).ready,true);
- const s=await d.observe({mode:'window',window_id:'Calculator'});
+ const s=await d.observe({mode:'window',window_id:'123'});
  assert.equal(s.receipt.snapshot_id,'pb-snap');
- assert.equal(s.elements[0].id,'B7');
- await d.act(s.receipt,{type:'invoke',element_id:'B7'});
- assert.ok(calls.some(x=>x.includes('--snapshot')&&x.includes('pb-snap')));
+ await d.act(s.receipt,{type:'invoke',element_id:'B1'});
+ assert.deepEqual(state.calls.at(-1),['click','--on','B1','--snapshot','pb-snap','--pid','42','--window-id','123','--json']);
 });
 
 test('Windows UI Automation adapter never equates SSH execution with interactive input readiness',async()=>{
