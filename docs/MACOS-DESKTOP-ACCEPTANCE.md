@@ -60,3 +60,17 @@ choose `--slow-inventory` for a 180-second scratch deadline. One measured invent
 took 31,261 ms with 54 total completed commands, motivating the explicit slow
 mode. Never repeat an uncertain mutation against an old scratch target; any new
 independent test requires a newly created scratch and renewed readiness gates.
+
+
+## Optional authenticated desktop-only gateway
+
+With the separately reviewed `src/desktop/gateway.mjs` and its pinned SDK
+dependencies present, `--gateway` routes the identical scratch sequence through
+that loopback Desktop-only MCP gateway. A fresh bearer token exists only in
+memory. The harness verifies missing/invalid bearer rejection, exactly four
+Desktop tools, PNG MCP content, explicitly unverified action receipts, and the
+specific replay rejection before validating the native stdout oracle. It does
+not enable Host execution/filesystem or alter `validateHost`. Successful output
+marks `authenticated_mcp:true` only when this mode actually completes. The
+shared gateway and final adapter revisions must be independently reviewed before
+a native run. No authenticated success is claimed by preparation alone.
