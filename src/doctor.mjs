@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import {constants as fsConstants} from 'node:fs';
 import {execFile as execFileCallback} from 'node:child_process';
 import {promisify} from 'node:util';
 import {configSchema,createRegistry} from './resources.mjs';
@@ -78,8 +79,10 @@ export async function runDoctor({
     }
     try{
       const meta=await files.lstat(path.join(privateDir,'token'));
-      if(!meta.isFile()||!secure(meta.mode))throw new Error('unsafe_token');
-      add('credential_file','ready','Credential file exists and has restricted permissions (content not read).');
+      if(!meta.isFile()||!secure(meta.mode)||!(meta.mode&0o400)||meta.uid!==uid)
+        throw new Error('unsafe_token');
+      await files.access(path.join(privateDir,'token'),fsConstants.R_OK);
+      add('credential_file','ready','Credential file is same-user readable and has restricted permissions (content not read).');
     }catch{
       add('credential_file','blocked','Credential file is missing, symbolic, or too permissive.',
         'Generate a private token through setup; keep it outside source control with mode 0600.');

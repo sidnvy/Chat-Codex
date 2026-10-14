@@ -135,3 +135,24 @@ test('doctor distinguishes the configured Styx process from an unrelated HTTP re
  })});
  assert.equal(status(legit,'local_server'),'ready');
 });
+test('doctor rejects token without current-user read permission and wrong file ownership',async t=>{
+ const f=await fixture(t);
+ await fs.chmod(f.tokenFile,0o000);
+ let report=await runDoctor(f.opts);
+ assert.equal(status(report,'credential_file'),'blocked','mode 0000 token must not pass');
+ assert.equal(report.overall,'blocked');
+ await fs.chmod(f.tokenFile,0o600);
+ report=await runDoctor({...f.opts,files:{
+  ...fs,
+  async lstat(file){
+   const stat=await fs.lstat(file);
+   if(file!==f.tokenFile)return stat;
+   const fake=Object.create(stat);
+   Object.defineProperty(fake,'uid',{value:0});
+   return fake;
+  }
+ }});
+ assert.equal(status(report,'credential_file'),'blocked','root-owned file must not pass for non-root user');
+ assert.equal(report.overall,'blocked');
+ assert.equal(JSON.stringify(report).includes(f.tokenFile),false);
+});
