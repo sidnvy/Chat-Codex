@@ -149,7 +149,7 @@ export class WinappDesktop {
   if(promoted){
    // --type selects upstream's constrained query path, which retains runtime-ID
    // slugs; ordinary search promotes AutomationIds again and cannot resolve this.
-   const search=await this.call(['search',selector,'-w',receipt.hwnd,'--type',promoted.type,'--max-results','2']);
+   const search=await this.call(['search',selector,'-w',receipt.hwnd,'--type',promoted.type,'--max','2']);
    const match=search?.matches?.[0];
    if(search?.matchCount!==1||search?.hasMore!==false||!Array.isArray(search.matches)||search.matches.length!==1||
     match?.automationId!==promoted.automation_id||match?.type!==promoted.type||(match?.name??null)!==promoted.name||

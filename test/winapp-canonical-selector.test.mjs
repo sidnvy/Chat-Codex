@@ -20,7 +20,7 @@ test('WinApp resolves only observed promoted AutomationId through constrained ex
  const {driver,state}=fixture();const seen=await observe(driver);
  assert.equal(seen.elements[0].label.length,160);assert.equal(seen.receipt.promoted_elements[0].name,state.name);
  const result=await act(driver,seen.receipt);assert.equal(result.outcome,'dispatched_unverified');
- assert.deepEqual(state.calls.find(a=>a[1]==='search'),['ui','search','FieldAutomationId','-w','42','--type','Edit','--max-results','2','--json']);
+ assert.deepEqual(state.calls.find(a=>a[1]==='search'),['ui','search','FieldAutomationId','-w','42','--type','Edit','--max','2','--json']);
  assert.deepEqual(mutations(state)[0],['ui','set-value','txt-field-a123','test','-w','42','--json']);
  await assert.rejects(driver.act(seen.receipt,{type:'set_value',element_id:'txt-field-a123',value:'unobserved'}),e=>e.code==='stale_target');
 });
