@@ -6,6 +6,7 @@ function processId(value){
  const id=typeof value==='number'&&Number.isSafeInteger(value)?String(value):value;
  return typeof id==='string'&&PID.test(id)&&Number(id)<=4294967295?id:null;
 }
+const CANONICAL=/^(?:btn|txt|chk|cmb|itm|tab|img|lbl|pn|win|grp|lnk|mnu|mnb|lst|tre|tri|grd|dat|rdo|sld|prg|scr|tlb|stb|ttl|spl|sep|doc|hdr|hdi|tip|thm|tbl|elm)(?:-[a-z0-9]{1,15})?-[a-f0-9]{4}$/;
 const HWND=/^[1-9][0-9]{0,19}$/;
 function handle(value){
  const id=typeof value==='number'&&Number.isSafeInteger(value)?String(value):value;
@@ -51,7 +52,7 @@ function unwrapElements(data,selected){
 }
 function flattenElements(roots){
  if(roots.length>1000)throw new DesktopError('invalid_driver_response','WinApp element tree exceeds inspection bounds');
- const pending=roots.map(element=>({element,depth:0})).reverse(),elements=[],ids=new Set();
+ const pending=roots.map(element=>({element,depth:0})).reverse(),elements=[],promoted=[],ids=new Set();
  let visited=0;
  while(pending.length){
   const {element:e,depth}=pending.pop();
@@ -60,7 +61,14 @@ function flattenElements(roots){
   if(id&&id.length<=128){
    if(ids.has(id))throw new DesktopError('invalid_driver_response','Duplicate WinApp element selector');
    ids.add(id);
-   if(elements.length<100)elements.push({id,role:String(e.role??e.type??e.controlType??'').slice(0,80),label:String(e.name??e.label??'').slice(0,160)});
+   if(elements.length<100){
+    elements.push({id,role:String(e.role??e.type??e.controlType??'').slice(0,80),label:String(e.name??e.label??'').slice(0,160)});
+    if(typeof e.automationId==='string'&&e.selector===e.automationId){
+     if(typeof e.type!=='string'||!e.type||e.type.length>80||(e.name!=null&&(typeof e.name!=='string'||e.name.length>4096)))
+      throw new DesktopError('invalid_driver_response','Promoted selector lacks bounded exact identity');
+     promoted.push({id,automation_id:e.automationId,type:e.type,name:e.name??null});
+    }
+   }
   }
   if(e?.children!==undefined){
    if(!Array.isArray(e.children))throw new DesktopError('invalid_driver_response','Malformed WinApp element children');
@@ -68,7 +76,7 @@ function flattenElements(roots){
    for(let i=e.children.length-1;i>=0;i--)pending.push({element:e.children[i],depth:depth+1});
   }
  }
- return elements;
+ return {elements,promoted};
 }
 export class WinappDesktop {
  constructor(run=localDesktopExec,sessionProbe=async()=>false){
@@ -118,12 +126,12 @@ export class WinappDesktop {
   const session=await this.session();
   const selected=await this.exactWindow(window_id);
   const data=await this.call(['inspect','-w',selected.hwnd,'--interactive']);
-  const elements=flattenElements(unwrapElements(data,selected));
+  const {elements,promoted}=flattenElements(unwrapElements(data,selected));
   const current=await this.exactWindow(window_id);
   if(current.pid!==selected.pid)throw new DesktopError('stale_target','HWND was reused during observation');
   if(await this.session()!==session)throw new DesktopError('stale_session','Windows interactive session changed');
   return {driver:this.driver,window:selected,elements,
-   receipt:{hwnd:selected.hwnd,pid:selected.pid,session_id:session,element_ids:elements.map(e=>e.id),observed_at:Date.now()}};
+   receipt:{hwnd:selected.hwnd,pid:selected.pid,session_id:session,element_ids:elements.map(e=>e.id),promoted_elements:promoted,observed_at:Date.now()}};
  }
  async act(receipt,action){
   const session=await this.session();
@@ -136,15 +144,34 @@ export class WinappDesktop {
    throw new DesktopError('stale_target','Element was not in the exact-window observation');
   const current=await this.exactWindow(receipt.hwnd);
   if(receipt.pid!==current.pid)throw new DesktopError('stale_target','HWND was reused by another process');
+  let selector=action.element_id;
+  const promoted=receipt.promoted_elements?.find(e=>e.id===selector);
+  if(promoted){
+   // --type selects upstream's constrained query path, which retains runtime-ID
+   // slugs; ordinary search promotes AutomationIds again and cannot resolve this.
+   const search=await this.call(['search',selector,'-w',receipt.hwnd,'--type',promoted.type,'--max-results','2']);
+   const match=search?.matches?.[0];
+   if(search?.matchCount!==1||search?.hasMore!==false||!Array.isArray(search.matches)||search.matches.length!==1||
+    match?.automationId!==promoted.automation_id||match?.type!==promoted.type||(match?.name??null)!==promoted.name||
+    typeof match?.selector!=='string'||!CANONICAL.test(match.selector)||
+    (match.hwnd!==undefined&&handle(match.hwnd)!==receipt.hwnd)||
+    (match.windowHandle!==undefined&&handle(match.windowHandle)!==receipt.hwnd))
+    throw new DesktopError('stale_target','Promoted selector no longer has one exact canonical identity');
+   selector=match.selector;
+   // Search JSON intentionally scrubs windowHandle; exact -w scope plus a fresh
+   // HWND/PID check supplies the window binding, never a title or app fallback.
+   const after=await this.exactWindow(receipt.hwnd);
+   if(after.pid!==receipt.pid)throw new DesktopError('stale_target','HWND changed during selector resolution');
+  }
   if(await this.session()!==session)throw new DesktopError('stale_session','Windows interactive session changed');
   if(!fresh())throw new DesktopError('stale_target','Windows UIA observation expired before dispatch');
   // Explicit invoke forbids WinApp's automatic pattern/ancestor fallback.
   // Once native input is entered, a malformed receipt/error cannot prove no dispatch.
   try{
    const result=action.type==='invoke'
-    ?await this.call(['invoke',action.element_id,'--action','invoke','-w',receipt.hwnd])
-    :await this.call(['set-value',action.element_id,action.value,'-w',receipt.hwnd]);
-   const exact=handle(result?.hwnd)===receipt.hwnd&&result?.elementId===action.element_id;
+    ?await this.call(['invoke',selector,'--action','invoke','-w',receipt.hwnd])
+    :await this.call(['set-value',selector,action.value,'-w',receipt.hwnd]);
+   const exact=handle(result?.hwnd)===receipt.hwnd&&result?.elementId===selector;
    const performed=action.type!=='invoke'||(result?.pattern==='InvokePattern'&&result?.requestedAction==='invoke'&&result?.performedAction==='invoke');
    if(!exact||!performed)return {driver:this.driver,outcome:'outcome_unknown',verified:false};
   }catch{return {driver:this.driver,outcome:'outcome_unknown',verified:false};}

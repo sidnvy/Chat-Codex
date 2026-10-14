@@ -45,7 +45,7 @@ export async function main(){
  const controller=new AbortController(),inflight=new Set();
 
  const run=(command,args,options={})=>{
-  const category=command==='powershell.exe'?'session_probe':['list-windows','inspect','invoke','set-value'].includes(args[1])?args[1]:'other';
+  const category=command==='powershell.exe'?'session_probe':['list-windows','inspect','search','invoke','set-value'].includes(args[1])?args[1]:'other';
   const began=Date.now();console.log(JSON.stringify({category,event:'start'}));
   const task=exec(command,args,{encoding:'utf8',timeout:options.timeout_ms??10000,maxBuffer:4194304,windowsHide:true,signal:controller.signal})
    .then(r=>{console.log(JSON.stringify({category,event:'result',exit_code:0,...nativeResultMetadata(r.stdout,args)}));return r.stdout;})
