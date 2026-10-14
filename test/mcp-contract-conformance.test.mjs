@@ -253,3 +253,31 @@ test('protocol-valid selected tool names include dots, hyphens and uppercase',()
  assert.deepEqual(Object.keys(subset.tools),['vendor.search']);
  assert.throws(()=>normalizeToolSurface([{name:'a'.repeat(129),inputSchema:{type:'object'}}]),/Invalid/);
 });
+
+test('a protocol-valid __proto__ tool name remains an own normalized key',()=>{
+ const raw=JSON.parse('[{"name":"__proto__","inputSchema":{"type":"object"}}]');
+ const result=normalizeToolSurface(raw);
+ assert.equal(Object.hasOwn(result.tools,'__proto__'),true);
+ assert.equal(Object.keys(result.tools).length,1);
+ assert.equal(compareToolSurfaces(result,normalizeToolSurface([])).compatible_structure,false);
+});
+test('schema property names resembling keywords do not change schema traversal context',()=>{
+ const make=title=>normalizeToolSurface([{name:'test',inputSchema:{
+  type:'object',properties:{properties:{type:'object',title,properties:{nested:{type:'string'}}}}
+ }}]);
+ assert.equal(compareToolSurfaces(make('metadata A'),make('metadata B')).compatible_structure,true,
+  'A nested schema title is still ignorable metadata');
+ const a=make('same');const b=structuredClone(a);
+ b.tools.test.inputSchema.properties.properties.properties.nested.type='number';
+ assert.equal(compareToolSurfaces(a,b).compatible_structure,false);
+});
+test('dependentRequired, draft-07 dependencies and multivalued type compare as unordered sets',()=>{
+ const make=(types,dependencies,dependentRequired)=>normalizeToolSurface([{name:'test',inputSchema:{
+  type:types,dependencies:{title:dependencies},dependentRequired:{title:dependentRequired}
+ }}]);
+ const a=make(['string','number'],['a','b'],['a','b']);
+ const b=make(['number','string'],['b','a'],['b','a']);
+ assert.equal(compareToolSurfaces(a,b).compatible_structure,true);
+ const c=make(['number','string'],['b','different'],['b','a']);
+ assert.equal(compareToolSurfaces(a,c).compatible_structure,false);
+});

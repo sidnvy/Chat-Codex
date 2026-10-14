@@ -7,28 +7,57 @@
  */
 const IGNORE_SCHEMA_FIELDS=new Set(['description','title','$comment','examples']);
 const ANNOTATIONS=['readOnlyHint','destructiveHint','idempotentHint','openWorldHint'];
-const SORTED_SET_ARRAYS=new Set(['required','enum','oneOf','anyOf','allOf']);
 const SAFE_NAME=/^[A-Za-z0-9_.-]{1,128}$/;
 export const TOOL_CONTRACT_VERSION=1;
 
-function canonical(value,key='',isPropertyMap=false,isLiteral=false){
+// JSON Schema objects, JSON instance literals, property-keyed dictionaries,
+// and unordered sets have different rules. Never infer the role of a nested
+// object from a *property name in user data* (e.g. "properties.properties").
+const SCHEMA_MAP_KEYS=new Set(['properties','patternProperties','$defs','definitions','dependentSchemas']);
+const SCHEMA_SET_KEYS=new Set(['allOf','anyOf','oneOf']);
+const SCHEMA_SINGLE_KEYS=new Set(['items','additionalItems','additionalProperties',
+ 'propertyNames','contains','not','if','then','else','unevaluatedItems',
+ 'unevaluatedProperties','contentSchema']);
+const SCHEMA_SEQUENCE_KEYS=new Set(['prefixItems']);
+const UNORDERED_KEYS=new Set(['required','type']);
+function childContext(context,field,value){
+ if(context==='literal')return 'literal';
+ if(context==='schemaMap')return 'schema';
+ if(context==='requiredMap')return 'set';
+ if(context==='dependencyMap')return Array.isArray(value)?'set':'schema';
+ if(context!=='schema')throw Error('Invalid JSON Schema normalization context');
+ if(SCHEMA_MAP_KEYS.has(field))return 'schemaMap';
+ if(field==='dependentRequired')return 'requiredMap';
+ if(field==='dependencies')return 'dependencyMap';
+ if(field==='const')return 'literal';
+ if(field==='enum')return 'enum';
+ if(UNORDERED_KEYS.has(field))return 'set';
+ if(SCHEMA_SET_KEYS.has(field))return 'schemaSet';
+ if(SCHEMA_SEQUENCE_KEYS.has(field))return 'schemaSequence';
+ if(SCHEMA_SINGLE_KEYS.has(field))return Array.isArray(value)?'schemaSequence':'schema';
+ // Unknown extension keywords may contain arbitrary JSON instance values.
+ // Keep them verbatim rather than deleting metadata-looking keys.
+ return 'literal';
+}
+function canonical(value,context='schema'){
  if(Array.isArray(value)){
-  const entries=value.map(v=>canonical(v,'',false,isLiteral||key==='enum'));
-  return !isLiteral&&SORTED_SET_ARRAYS.has(key)
+  const elementContext=context==='enum'||context==='literal'?'literal':
+   context==='schemaSet'||context==='schemaSequence'?'schema':'literal';
+  const entries=value.map(item=>canonical(item,elementContext));
+  return ['set','enum','schemaSet'].includes(context)
    ?entries.sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)))
    :entries;
  }
  if(value&&typeof value==='object'){
-  const object={};
+  const object={}; // Own properties are defined explicitly for reserved names.
   for(const field of Object.keys(value).sort()){
-   if(!isPropertyMap&&!isLiteral&&IGNORE_SCHEMA_FIELDS.has(field))continue;
+   if(context==='schema'&&IGNORE_SCHEMA_FIELDS.has(field))continue;
    const next=value[field];
-   if(next!==undefined)Object.defineProperty(object,field,{value:canonical(next,field,!isLiteral&&['properties','patternProperties','$defs','definitions','dependentSchemas','dependentRequired','dependencies'].includes(field),isLiteral||field==='const'),enumerable:true,configurable:true,writable:true});
+   if(next!==undefined)Object.defineProperty(object,field,{value:canonical(next,childContext(context,field,next)),enumerable:true,configurable:true,writable:true});
   }
   return object;
  }
- if(value===null||['string','boolean','number'].includes(typeof value))
-  return value;
+ if(value===null||['string','boolean','number'].includes(typeof value))return value;
  throw Error('MCP tool schema contains a non-JSON value');
 }
 function inputTools(raw){
@@ -40,7 +69,7 @@ export function normalizeToolSurface(raw,{names}={}){
  const tools=inputTools(raw),wanted=names?new Set(names):null;
  if(wanted&&(wanted.size!==names.length||[...wanted].some(s=>!SAFE_NAME.test(s))))
   throw Error('Invalid or duplicated expected tool names');
- const table={};
+ const table=Object.create(null);
  for(const tool of tools){
   if(!tool||typeof tool.name!=='string')throw Error('Invalid MCP tool name');
   if(wanted&&!wanted.has(tool.name))continue;
