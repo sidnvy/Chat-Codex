@@ -21,10 +21,10 @@
     "test:contracts": "node --test test/mcp-contract-conformance.test.mjs"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.30.1",
+    "@modelcontextprotocol/sdk": "1.31.0",
     "zod": "4.4.3"
   },
   "devDependencies": {
-    "ajv": "^8.17.1"
+    "ajv": "8.18.0"
   }
 }
