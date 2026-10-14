@@ -3,7 +3,7 @@
 - **Status:** proposed, implementation RFC (not yet released)
 - **Scope:** public `sidnvy/Styx` (renamed from `sidnvy/Chat-Codex`) and private Charon distribution
 - **Reference baseline:** public Chat-Codex `f0cba3c` (v0.3.0); private consumer implementation inventory is tracked separately
-- **Related:** [v0.4 Golden Path issue](https://github.com/sidnvy/Chat-Codex/issues/3), `docs/ADR-0001-resource-ownership.md`, `docs/PROVIDER-CONTRACT.md`
+- **Related:** [v0.4 Golden Path issue](https://github.com/sidnvy/Styx/issues/3), `docs/ADR-0001-resource-ownership.md`, `docs/PROVIDER-CONTRACT.md`
 
 ## Decision
 
