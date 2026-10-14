@@ -30,7 +30,8 @@
   },
   "exports": {
     "./desktop/core": "./src/desktop/core.mjs",
-    "./desktop/contract": "./src/desktop/contract.mjs"
+    "./desktop/contract": "./src/desktop/contract.mjs",
+    "./desktop/hyprland-worker": "./src/desktop/hyprland-worker.mjs"
   },
   "files": [
     "src/",

@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
-import {DesktopError,DESKTOP_IMAGE_LIMIT_BYTES} from './contract.mjs';
+import {DesktopError,DESKTOP_IMAGE_LIMIT_BYTES} from './primitives.mjs';
 import {localDesktopExec,parseCommandJson} from './exec.mjs';
 const bounded=s=>String(s??'').slice(0,128);
 export class HyprlandDesktop {
