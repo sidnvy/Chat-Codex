@@ -1,7 +1,15 @@
-import {DesktopError} from './contract.mjs';
+import fs from 'node:fs/promises';
+import {constants} from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {createHash} from 'node:crypto';
+import {DesktopError,DESKTOP_IMAGE_LIMIT_BYTES} from './contract.mjs';
 import {localDesktopExec,parseCommandJson} from './exec.mjs';
+const bounded=value=>String(value??'').slice(0,128);
+const invalid=message=>new DesktopError('invalid_driver_response',message);
+const decimal=value=>typeof value==='string'&&/^[1-9][0-9]*$/.test(value);
 export class PeekabooDesktop {
- constructor(run=localDesktopExec){this.run=run;this.driver='peekaboo';}
+ constructor(run=localDesktopExec,sessionProbe=async()=>null){this.run=run;this.sessionProbe=sessionProbe;this.driver='peekaboo';}
  async call(args){
   const result=parseCommandJson(await this.run('peekaboo',[...args,'--json']),this.driver);
   if(result.success!==true)throw new DesktopError(result.error?.code??'driver_error',String(result.error?.message??'Peekaboo operation failed').slice(0,350));
@@ -10,38 +18,115 @@ export class PeekabooDesktop {
  async status(){
   try{
    const data=await this.call(['permissions','status']);
-   const permissions=Object.fromEntries((data.permissions??[]).map(p=>[p.name,Boolean(p.isGranted)]));
-   const ready=permissions['Screen Recording']===true&&permissions.Accessibility===true;
-   return {driver:this.driver,state:ready?'ready':'permission_denied',ready,permissions,
-    capabilities:ready?['windows','window_screenshot','accessibility','keyboard','element_click']:[]};
-  }catch(e){return {driver:this.driver,state:e.code==='driver_unavailable'?'driver_unavailable':'bridge_unavailable',ready:false,capabilities:[],error:e.message};}
+   const permissions=Object.fromEntries((data.permissions??[]).map(p=>[p.name,p.isGranted===true]));
+   if(permissions['Screen Recording']!==true||permissions.Accessibility!==true)
+    return {driver:this.driver,state:'permission_denied',ready:false,permissions,capabilities:[]};
+   const session=await this.sessionProbe();
+   const verified=session?.ready===true&&typeof session.session_id==='string'&&session.session_id.length>0&&session.session_id.length<=1024;
+   const state=verified?'ready':'session_unverified';
+   return {driver:this.driver,state,ready:state==='ready',permissions,
+    ...(verified?{session_id:createHash('sha256').update(session.session_id).digest('hex')}:{}),
+    capabilities:state==='ready'?['windows','window_screenshot','accessibility','keyboard','element_click']:[]};
+  }catch(e){return {driver:this.driver,state:e.code==='driver_unavailable'?'driver_unavailable':'session_unverified',ready:false,capabilities:[],error:String(e.message).slice(0,200)};}
+ }
+ async ready(session_id){
+  const status=await this.status();
+  if(!status.ready)throw new DesktopError(status.state,'Desktop session is not ready');
+  if(session_id&&status.session_id!==session_id)throw new DesktopError('stale_target','Desktop session changed');
+  return status.session_id;
+ }
+ async applications(){
+  const data=await this.call(['app','list','--include-hidden','--include-background']);
+  if(!Array.isArray(data.apps)||data.apps.some(a=>!Number.isSafeInteger(a.pid)||a.pid<=0))throw invalid('Invalid application inventory');
+  return data;
+ }
+ async windows(app){
+  const data=await this.call(['window','list','--pid',String(app.pid)]);
+  if(data.target_application_info?.pid!==app.pid||!Array.isArray(data.windows))throw invalid('Window inventory owner does not match requested PID');
+  const windows=data.windows.map(w=>{
+   if(!Number.isSafeInteger(w.window_id)||w.window_id<=0||typeof w.window_title!=='string')throw invalid('Invalid exact window identity');
+   return {id:String(w.window_id),title:bounded(w.window_title),title_truncated:w.window_title.length>128,app:bounded(app.name),pid:app.pid,
+    full_title:w.window_title,process_start:app.process_start_identity_decimal};
+  });
+  return {windows,truncated:data.inventory_completeness!=='complete'};
+ }
+ async inventory(){
+  const data=await this.applications();
+  let truncated=data.apps.length>50||(data.warnings?.length??0)>0;
+  const windows=[];
+  for(const app of data.apps.slice(0,50)){
+   try{const result=await this.windows(app);windows.push(...result.windows);truncated ||= result.truncated;}
+   catch{truncated=true;}
+   if(windows.length>100){truncated=true;break;}
+  }
+  return {windows:windows.slice(0,100),truncated};
+ }
+ async assertReceipt(receipt){
+  await this.ready(receipt.session_id);
+  const data=await this.applications();
+  const app=data.apps.find(a=>a.pid===receipt.pid);
+  if(!app||!decimal(receipt.process_start)||app.process_start_identity_decimal!==receipt.process_start)
+   throw new DesktopError('stale_target','Window process changed since observation');
+  const {windows}=await this.windows(app);
+  const window=windows.find(w=>w.id===receipt.window_id);
+  if(!window||window.full_title!==receipt.title)throw new DesktopError('stale_target','Window identity or title changed since observation');
+  await this.ready(receipt.session_id);
  }
  async observe({mode,window_id}){
-  if(mode==='windows'){
-   const data=await this.call(['window','list']);
-   return {driver:this.driver,windows:(data.windows??[]).slice(0,100).map(a=>({id:String(a.id??a.window_id??a.windowId??''),title:String(a.title??'').slice(0,128),title_truncated:String(a.title??'').length>128,app:String(a.app??a.applicationName??'')})),truncated:(data.windows??[]).length>100};
-  }
-  // window_id refers to an explicitly selected application bundle/name, not an arbitrary process.
-  const selector=/^[0-9]+$/.test(window_id)?['--window-id',window_id]:['--app',window_id];
-  const data=await this.call(['see',...selector,'--depth','3','--max-elements','100']);
-  if(!data.snapshot_id)throw new DesktopError('invalid_driver_response','Peekaboo returned no snapshot');
-  const elements=(data.ui_elements??[]).slice(0,100).map(e=>({
-   id:String(e.id??e.element_id??'').slice(0,128),
-   role:String(e.role??'').slice(0,80),
-   label:String(e.label??e.title??'').slice(0,160)
-  }));
-  return {driver:this.driver,window:{id:window_id,title:String(data.window_title??window_id).slice(0,128),app:window_id},
-   elements,receipt:{snapshot_id:data.snapshot_id,window_id},
-   ...(typeof data.screenshot_raw==='string'&&data.screenshot_raw.length>0?
-    {image:{mimeType:'image/png',data:data.screenshot_raw}}:{})};
+  const session_id=await this.ready();
+  if(mode!=='windows'&&!decimal(window_id))throw new DesktopError('invalid_argument','An exact numeric window ID is required');
+  const inventory=await this.inventory();
+  await this.ready(session_id);
+  const publicWindow=({full_title,process_start,...window})=>window;
+  if(mode==='windows')return {driver:this.driver,windows:inventory.windows.map(publicWindow),truncated:inventory.truncated};
+  const matches=inventory.windows.filter(w=>w.id===window_id);
+  if(matches.length!==1)throw new DesktopError('target_not_found','Exact window not found uniquely in bounded inventory');
+  const window=matches[0];
+  const receipt={window_id,pid:window.pid,title:window.full_title,process_start:window.process_start,session_id};
+  await this.assertReceipt(receipt);
+  const tmp=await fs.mkdtemp(path.join(os.tmpdir(),'styx-peekaboo-'));
+  try{
+   const dest=path.join(tmp,'capture.png');
+   const data=await this.call(['see','--pid',String(window.pid),'--window-id',window_id,'--mode','window','--path',dest,'--format','png','--depth','3','--max-elements','100']);
+   if(typeof data.snapshot_id!=='string'||!data.snapshot_id||data.snapshot_id==='latest'||data.snapshot_reusable!==true||data.mutation_targeting_available!==true||data.semantic_scope!=='exact_or_requested'||data.capture_mode!=='window'||String(data.observation?.target?.window_id)!==window_id||data.window_title!==receipt.title)
+    throw invalid('Capture is not bound to the requested exact window');
+   if(!Array.isArray(data.ui_elements))throw invalid('Capture elements are missing');
+   const seen=new Set();
+   const elements=data.ui_elements.slice(0,100).map(e=>{
+    if(typeof e.id!=='string'||!e.id||e.id.length>128||seen.has(e.id))throw invalid('Invalid or duplicate element identity');
+    seen.add(e.id);return {id:e.id,role:String(e.role??'').slice(0,80),label:String(e.label??e.title??'').slice(0,160)};
+   });
+   let image;
+   if(data.screenshot_raw!==''){
+    if(data.coordinate_context?.window?.window_id!==Number(window_id)||data.coordinate_context?.window?.title!==receipt.title)throw new DesktopError('invalid_capture','Screenshot identity does not match the requested window');
+    if(data.screenshot_raw!==dest)throw new DesktopError('invalid_capture','Capture path does not match the task-owned destination');
+    const handle=await fs.open(dest,constants.O_RDONLY|constants.O_NOFOLLOW);
+    try{
+     const stat=await handle.stat();
+     if(!stat.isFile()||stat.nlink!==1||stat.size<8||stat.size>DESKTOP_IMAGE_LIMIT_BYTES)throw new DesktopError('invalid_capture','Invalid or oversized capture');
+     const bytes=Buffer.alloc(stat.size+1);
+     const {bytesRead}=await handle.read(bytes,0,bytes.length,0);
+     if(bytesRead!==stat.size||!bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))throw new DesktopError('invalid_capture','Invalid capture bytes');
+     image={mimeType:'image/png',data:bytes.subarray(0,bytesRead).toString('base64')};
+    }finally{await handle.close();}
+   }
+   await this.assertReceipt(receipt);
+   return {driver:this.driver,window:publicWindow(window),elements,receipt:{...receipt,snapshot_id:data.snapshot_id,element_ids:elements.map(e=>e.id)},...(image?{image}:{})};
+  }finally{await fs.rm(tmp,{recursive:true,force:true});}
  }
  async act(receipt,action){
   let args;
-  if(action.type==='type')args=['type',action.text,'--snapshot',receipt.snapshot_id];
-  else if(action.type==='key')args=['press',action.key,'--snapshot',receipt.snapshot_id];
-  else if(action.type==='invoke')args=['click','--on',action.element_id,'--snapshot',receipt.snapshot_id];
-  else throw new DesktopError('unsupported_action','Peekaboo adapter supports type/key/element click; physical coordinates not exposed by this contract');
-  await this.call(args);
+  if(typeof receipt?.snapshot_id!=='string'||!receipt.snapshot_id||receipt.snapshot_id==='latest')throw invalid('A named capture snapshot is required');
+  if(action.type==='type')args=['type','--text',action.text];
+  else if(action.type==='key')args=['press',action.key];
+  else if(action.type==='invoke'){
+   if(!receipt.element_ids?.includes(action.element_id))throw new DesktopError('invalid_element','Element was not exposed by this capture');
+   args=['click','--on',action.element_id];
+  }else throw new DesktopError('unsupported_action','Peekaboo supports type, key and observed element click');
+  await this.assertReceipt(receipt);
+  // Once the driver is entered, even a failure can follow partial input. Never retry automatically.
+  try{await this.call([...args,'--snapshot',receipt.snapshot_id,'--pid',String(receipt.pid),'--window-id',receipt.window_id]);}
+  catch{return {driver:this.driver,outcome:'outcome_unknown',verified:false};}
   return {driver:this.driver,outcome:'dispatched_unverified',verified:false};
  }
 }
