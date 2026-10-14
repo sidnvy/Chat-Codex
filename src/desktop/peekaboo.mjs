@@ -8,14 +8,27 @@ import {localDesktopExec,parseCommandJson} from './exec.mjs';
 const bounded=value=>String(value??'').slice(0,128);
 const invalid=message=>new DesktopError('invalid_driver_response',message);
 const decimal=value=>typeof value==='string'&&/^[1-9][0-9]*$/.test(value);
+// Pinned Peekaboo DesktopActionOutcome.Projection; never infer dispatch from success alone.
+function acceptedDispatch(outcome){
+ const mechanisms=['composite','accessibility_action','accessibility_value','process_targeted_events','window_targeted_events','native_framework'];
+ if(!outcome||!['local','bridge'].includes(outcome.route)||!mechanisms.includes(outcome.delivery_mechanism)||
+  (outcome.dispatched_unit_count!=null&&(!Number.isSafeInteger(outcome.dispatched_unit_count)||outcome.dispatched_unit_count<=0))||
+  outcome.dispatch_state!=='dispatched'||outcome.mutation_dispatched!==true||outcome.delivery_mode!=='background'||
+  outcome.retry_safe!==false||outcome.refusal_reason!=null)return false;
+ if(outcome.state==='confirmed_change')return outcome.effect==='confirmed'&&outcome.evidence==='verified_change'&&
+  outcome.retry_safety==='not_applicable'&&outcome.escalation==='none'&&outcome.requires_fresh_observation===false;
+ return outcome.state==='dispatched_unverified'&&outcome.effect==='unverifiable'&&
+  ['delivery_accepted','operation_still_running'].includes(outcome.evidence)&&outcome.retry_safety==='unsafe'&&
+  outcome.escalation==='observe_before_retry'&&outcome.requires_fresh_observation===true;
+}
 export class PeekabooDesktop {
  #locators=new Map();
  #locatorSession;
  constructor(run=localDesktopExec,sessionProbe=async()=>null,clock=()=>Date.now()){this.run=run;this.sessionProbe=sessionProbe;this.clock=clock;this.driver='peekaboo';}
- async call(args){
+ async call(args,{envelope=false}={}){
   const result=parseCommandJson(await this.run('peekaboo',[...args,'--json']),this.driver);
   if(result.success!==true)throw new DesktopError(result.error?.code??'driver_error',String(result.error?.message??'Peekaboo operation failed').slice(0,350));
-  return result.data??{};
+  return envelope?result:result.data??{};
  }
  async status(){
   try{
@@ -135,7 +148,7 @@ export class PeekabooDesktop {
  async act(receipt,action){
   let args;
   if(typeof receipt?.snapshot_id!=='string'||!receipt.snapshot_id||receipt.snapshot_id==='latest')throw invalid('A named capture snapshot is required');
-  if(action.type==='type')args=['type','--text',action.text];
+  if(action.type==='type')args=['type','--text',action.text,'--accept-dispatched'];
   else if(action.type==='key')args=['press',action.key];
   else if(action.type==='invoke'){
    if(!receipt.element_ids?.includes(action.element_id))throw new DesktopError('invalid_element','Element was not exposed by this capture');
@@ -143,7 +156,10 @@ export class PeekabooDesktop {
   }else throw new DesktopError('unsupported_action','Peekaboo supports type, key and observed element click');
   await this.assertReceipt(receipt);
   // Once the driver is entered, even a failure can follow partial input. Never retry automatically.
-  try{await this.call([...args,'--snapshot',receipt.snapshot_id,'--pid',String(receipt.pid),'--window-id',receipt.window_id]);}
+  try{
+   const result=await this.call([...args,'--snapshot',receipt.snapshot_id,'--pid',String(receipt.pid),'--window-id',receipt.window_id],{envelope:true});
+   if(!acceptedDispatch(result.outcome))return {driver:this.driver,outcome:'outcome_unknown',verified:false};
+  }
   catch{return {driver:this.driver,outcome:'outcome_unknown',verified:false};}
   return {driver:this.driver,outcome:'dispatched_unverified',verified:false};
  }

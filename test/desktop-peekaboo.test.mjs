@@ -168,3 +168,39 @@ test('Peekaboo locators are bounded to100 and exclude duplicate IDs beyond the o
   assert.equal(state.calls.some(a=>a[0]==='see'),false);
  }
 });
+test('Peekaboo explicitly accepts native unverified typing without retry or target broadening',async()=>{
+ const {state,driver}=peekabooFixture();const captured=await observe(driver);
+ const result=await driver.act(captured.receipt,{type:'type',text:'literal'});
+ assert.deepEqual(result,{driver:'peekaboo',outcome:'dispatched_unverified',verified:false});
+ assert.deepEqual(inputCalls(state),[['type','--text','literal','--accept-dispatched','--snapshot','pb-snap','--pid','42','--window-id','123','--json']]);
+});
+test('Peekaboo success alone cannot promote refused, partial, indeterminate or contradictory outcomes',async()=>{
+ for(const patch of [null,{}, {route:undefined},{delivery_mechanism:undefined},{delivery_mechanism:'global_events'},{dispatched_unit_count:0},{state:'refused'},{state:'partial'},{state:'indeterminate'},{state:'suspected_noop'},{state:'confirmed_no_change'},{dispatch_state:'may_have_dispatched'},{mutation_dispatched:false},{retry_safe:true},{delivery_mode:'foreground'},{refusal_reason:'target_unavailable'},{requires_fresh_observation:false},{evidence:'verified_change'}]){
+  const {state,driver}=peekabooFixture();const captured=await observe(driver);
+  state.outcome=patch===null?undefined:Object.keys(patch).length?{...state.outcome,...patch}:{};
+  assert.equal((await driver.act(captured.receipt,{type:'type',text:'once'})).outcome,'outcome_unknown');
+  assert.equal(inputCalls(state).length,1);
+ }
+});
+test('Peekaboo native confirmation remains unverified by Styx and key/click use the same envelope check',async()=>{
+ for(const action of [{type:'type',text:'text'},{type:'key',key:'Return'},{type:'invoke',element_id:'B1'}]){
+  const {state,driver}=peekabooFixture();const captured=await observe(driver);
+  Object.assign(state.outcome,{state:'confirmed_change',effect:'confirmed',evidence:'verified_change',retry_safety:'not_applicable',escalation:'none',requires_fresh_observation:false});
+  assert.equal((await driver.act(captured.receipt,action)).outcome,'dispatched_unverified');
+  state.outcome.state='partial';
+  assert.equal((await driver.act(captured.receipt,action)).outcome,'outcome_unknown');
+ }
+});
+test('Peekaboo failed or malformed command envelopes stay unknown even with accepted outcome data',async()=>{
+ for(const malformed of [false,true]){
+  const {state,run}=peekabooFixture();
+  const driver=new PeekabooDesktop(async(command,args)=>{
+   const raw=await run(command,args);
+   if(args[0]!=='type')return raw;
+   return malformed?'not-json':JSON.stringify({...JSON.parse(raw),success:false,error:{code:'INTERACTION_FAILED'}});
+  },async()=>state.session,()=>state.now);
+  const captured=await observe(driver);
+  assert.equal((await driver.act(captured.receipt,{type:'type',text:'once'})).outcome,'outcome_unknown');
+  assert.equal(inputCalls(state).length,1);
+ }
+});
