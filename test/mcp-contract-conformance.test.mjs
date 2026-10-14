@@ -192,3 +192,35 @@ test('normalized tool map keys cannot be overridden by nested name fields',()=>{
  const malformed={contract_version:1,tools:{foo:{name:'bar',inputSchema:{type:'object'},annotations:{}}}};
  assert.throws(()=>compareToolSurfaces(malformed,baseline),/Invalid normalized tool entry/);
 });
+
+test('declared JSON Schema dialect is structural, not ignorable metadata',()=>{
+ const a=normalizeToolSurface([{name:'test',inputSchema:{$schema:'http://json-schema.org/draft-07/schema#',type:'object'}}]);
+ const b=normalizeToolSurface([{name:'test',inputSchema:{type:'object'}}]);
+ const delta=compareToolSurfaces(a,b);
+ assert.equal(delta.compatible_structure,false);
+ assert.ok(delta.differences[0].changes.some(x=>x.path==='/inputSchema/$schema'));
+});
+test('JSON Schema dependency maps retain reserved property keys',()=>{
+ for(const key of ['dependentRequired','dependentSchemas','dependencies']){
+  const obj=(key==='dependentRequired'?{title:['foo']}: {title:{type:'string'}});
+  const a=normalizeToolSurface([{name:'test',inputSchema:{type:'object',[key]:obj}}]);
+  const b=normalizeToolSurface([{name:'test',inputSchema:{type:'object',[key]:{}}}]);
+  assert.equal(Object.hasOwn(a.tools.test.inputSchema[key],'title'),true,key);
+  assert.equal(compareToolSurfaces(a,b).compatible_structure,false,key);
+ }
+});
+test('subset capture ignores unrelated vendor tool names without treating them as invalid',()=>{
+ const baseline=normalizeToolSurface([{name:'target_status',inputSchema:{type:'object'}},{name:'vendor.search',inputSchema:{type:'object'}},{name:'foo-bar',inputSchema:{type:'object'}}],{names:['target_status']});
+ assert.deepEqual(Object.keys(baseline.tools),['target_status']);
+});
+test('diff truncated is only true when at least one changed path was omitted',()=>{
+ const a=normalizeToolSurface([{name:'test',inputSchema:{type:'object',properties:{first:{type:'number'}}}}]);
+ const b=normalizeToolSurface([{name:'test',inputSchema:{type:'object',properties:{first:{type:'string'}}}}]);
+ const exactly=compareToolSurfaces(a,b,{maxChangesPerTool:1});
+ assert.equal(exactly.differences[0].changes.length,1);
+ assert.equal(exactly.differences[0].truncated,false);
+ const c=normalizeToolSurface([{name:'test',inputSchema:{type:'object',properties:{first:{type:'string'},second:{type:'boolean'}}}}]);
+ const overflow=compareToolSurfaces(a,c,{maxChangesPerTool:1});
+ assert.equal(overflow.differences[0].changes.length,1);
+ assert.equal(overflow.differences[0].truncated,true);
+});

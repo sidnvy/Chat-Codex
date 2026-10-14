@@ -5,7 +5,7 @@
  * A JSON Schema structural diff is a compatibility diagnostic, NOT a proof
  * that different backend effects or schema compositions behave identically.
  */
-const IGNORE_SCHEMA_FIELDS=new Set(['description','title','$comment','examples','$schema']);
+const IGNORE_SCHEMA_FIELDS=new Set(['description','title','$comment','examples']);
 const ANNOTATIONS=['readOnlyHint','destructiveHint','idempotentHint','openWorldHint'];
 const SORTED_SET_ARRAYS=new Set(['required','enum','oneOf','anyOf','allOf']);
 const SAFE_NAME=/^[a-z][a-z0-9_]{0,90}$/;
@@ -23,7 +23,7 @@ function canonical(value,key='',isPropertyMap=false){
   for(const field of Object.keys(value).sort()){
    if(!isPropertyMap&&IGNORE_SCHEMA_FIELDS.has(field))continue;
    const next=value[field];
-   if(next!==undefined)Object.defineProperty(object,field,{value:canonical(next,field,['properties','patternProperties','$defs','definitions'].includes(field)),enumerable:true,configurable:true,writable:true});
+   if(next!==undefined)Object.defineProperty(object,field,{value:canonical(next,field,['properties','patternProperties','$defs','definitions','dependentSchemas','dependentRequired','dependencies'].includes(field)),enumerable:true,configurable:true,writable:true});
   }
   return object;
  }
@@ -42,9 +42,9 @@ export function normalizeToolSurface(raw,{names}={}){
   throw Error('Invalid or duplicated expected tool names');
  const table={};
  for(const tool of tools){
-  if(!tool||typeof tool.name!=='string'||!SAFE_NAME.test(tool.name))
-   throw Error('Invalid MCP tool name');
+  if(!tool||typeof tool.name!=='string')throw Error('Invalid MCP tool name');
   if(wanted&&!wanted.has(tool.name))continue;
+  if(!SAFE_NAME.test(tool.name))throw Error('Invalid selected MCP tool name');
   if(Object.hasOwn(table,tool.name))throw Error('Duplicate MCP tool name: '+tool.name);
   if(!tool.inputSchema||typeof tool.inputSchema!=='object'||Array.isArray(tool.inputSchema))
    throw Error('Missing input schema for '+tool.name);
@@ -96,8 +96,8 @@ export function compareToolSurfaces(leftRaw,rightRaw,{maxChangesPerTool=100}={})
  const differences=[];
  for(const name of shared){
   const fields=[];
-  walk(left.tools[name],right.tools[name],'',fields,maxChangesPerTool);
-  if(fields.length)differences.push({name,changes:fields,truncated:fields.length===maxChangesPerTool});
+  walk(left.tools[name],right.tools[name],'',fields,maxChangesPerTool+1);
+  if(fields.length)differences.push({name,changes:fields.slice(0,maxChangesPerTool),truncated:fields.length>maxChangesPerTool});
  }
  return {
   contract_version:TOOL_CONTRACT_VERSION,

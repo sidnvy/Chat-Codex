@@ -3,6 +3,7 @@
   "tools": {
     "environment_create": {
       "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {
           "environment": {
@@ -24,6 +25,7 @@
     },
     "environment_delete": {
       "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {
           "environment": {
@@ -45,6 +47,7 @@
     },
     "environment_list": {
       "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {},
         "type": "object"
@@ -58,6 +61,7 @@
     },
     "environment_start": {
       "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {
           "environment": {
@@ -79,6 +83,7 @@
     },
     "environment_status": {
       "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {
           "environment": {
@@ -100,6 +105,7 @@
     },
     "environment_stop": {
       "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {
           "environment": {
@@ -121,6 +127,7 @@
     },
     "host_list": {
       "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {},
         "type": "object"
@@ -134,6 +141,7 @@
     },
     "host_status": {
       "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {
           "host": {
@@ -155,6 +163,7 @@
     },
     "project_list": {
       "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {},
         "type": "object"
@@ -168,6 +177,7 @@
     },
     "project_status": {
       "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {
           "project": {
@@ -189,6 +199,7 @@
     },
     "target_apply_patch": {
       "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {
           "patch": {
@@ -239,6 +250,7 @@
     },
     "target_desktop_act": {
       "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {
           "action": {
@@ -393,6 +405,7 @@
     },
     "target_desktop_observe": {
       "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {
           "mode": {
@@ -444,6 +457,7 @@
     },
     "target_desktop_status": {
       "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {
           "target": {
@@ -482,6 +496,7 @@
     },
     "target_desktop_wait": {
       "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {
           "condition": {
@@ -546,6 +561,7 @@
     },
     "target_exec": {
       "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {
           "command": {
@@ -602,6 +618,7 @@
     },
     "target_list_directory": {
       "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {
           "path": {
@@ -646,6 +663,7 @@
     },
     "target_process_poll": {
       "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {
           "max_lines": {
@@ -695,6 +713,7 @@
     },
     "target_process_start": {
       "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {
           "command": {
@@ -751,6 +770,7 @@
     },
     "target_process_stop": {
       "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {
           "session_id": {
@@ -794,6 +814,7 @@
     },
     "target_read_file": {
       "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {
           "path": {
@@ -838,6 +859,7 @@
     },
     "target_status": {
       "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {
           "target": {
@@ -876,6 +898,7 @@
     },
     "target_task_list": {
       "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {
           "limit": {
@@ -920,6 +943,7 @@
     },
     "target_write_file": {
       "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false,
         "properties": {
           "content": {
