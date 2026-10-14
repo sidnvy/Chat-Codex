@@ -175,3 +175,16 @@ test('observed grant revocation permanently invalidates snapshots even when a fa
  await assert.rejects(act(manager,seen.snapshot_id),rejection('unknown_snapshot'));
  assert.ok((await observe(manager)).snapshot_id);
 });
+
+
+for(const replacementFails of [false,true])test('observed driver rotation cannot revive snapshots with reused singleton; factory failure='+replacementFails,async()=>{
+ const {manager,registry}=harness();
+ const original=manager.select(alpha);
+ const seen=await observe(manager);
+ manager.driverFactory=name=>{if(name==='other'&&replacementFails)throw Error('replacement failed');return original;};
+ registry.hosts.get('alpha').capabilities.desktop.driver='other';
+ if(replacementFails)await assert.rejects(manager.status(alpha),/replacement failed/);
+ else await manager.status(alpha);
+ registry.hosts.get('alpha').capabilities.desktop.driver='mock';
+ await assert.rejects(act(manager,seen.snapshot_id),rejection('unknown_snapshot'));
+});

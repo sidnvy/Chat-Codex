@@ -27,8 +27,12 @@ export class DesktopManager {
   }
   const current=this.drivers.get(key);
   // Never retain an old driver after an administrator changes the grant.
-  if(!current||current.name!==option.driver)
+  if(!current||current.name!==option.driver){
+   this.drivers.delete(key);
+   for(const [id,snapshot] of this.snapshots)
+    if(snapshot.target.kind===target.kind&&snapshot.target.id===target.id)this.snapshots.delete(id);
    this.drivers.set(key,{name:option.driver,driver:verifyDesktopDriver(this.driverFactory(option.driver))});
+  }
   return this.drivers.get(key).driver;
  }
  async status(target){
