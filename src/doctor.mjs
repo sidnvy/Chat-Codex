@@ -59,8 +59,8 @@ export async function runDoctor({
       // Shared runtime validation also checks missing providers, project
       // references, unsafe paths, overlapping roots and OS Host policy.
       // Do not emit the normal Host warning into machine-readable diagnostics.
+      config=parsed.data; // Keep parsed Project identities for actionable diagnostics.
       await createRegistry(raw,configFile,{warnHostAccess:false});
-      config=parsed.data;
       add('configuration','ready','Configuration schema and file permissions are valid.');
     }catch{
       add('configuration','blocked','Configuration cannot be read safely or does not match the schema.',

@@ -156,3 +156,14 @@ test('doctor rejects token without current-user read permission and wrong file o
  assert.equal(report.overall,'blocked');
  assert.equal(JSON.stringify(report).includes(f.tokenFile),false);
 });
+
+test('doctor retains per-Project recovery guidance when runtime registry admission fails',async t=>{
+ const f=await fixture(t);
+ await fs.rm(f.project,{recursive:true,force:true});
+ const report=await runDoctor(f.opts);
+ assert.equal(status(report,'configuration'),'blocked');
+ assert.equal(status(report,'project:default'),'blocked');
+ assert.match(report.checks.find(x=>x.id==='project:default').next,/Restore the configured Project/);
+ assert.equal(report.overall,'blocked');
+ assert.ok(!JSON.stringify(report).includes(f.project),'Project path must stay private');
+});
