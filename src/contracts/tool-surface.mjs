@@ -23,7 +23,7 @@ function canonical(value,key='',isPropertyMap=false){
   for(const field of Object.keys(value).sort()){
    if(!isPropertyMap&&IGNORE_SCHEMA_FIELDS.has(field))continue;
    const next=value[field];
-   if(next!==undefined)object[field]=canonical(next,field,['properties','patternProperties','$defs','definitions'].includes(field));
+   if(next!==undefined)Object.defineProperty(object,field,{value:canonical(next,field,['properties','patternProperties','$defs','definitions'].includes(field)),enumerable:true,configurable:true,writable:true});
   }
   return object;
  }
@@ -67,7 +67,11 @@ function validateNormalized(snapshot){
  if(!snapshot||snapshot.contract_version!==TOOL_CONTRACT_VERSION||
    !snapshot.tools||typeof snapshot.tools!=='object'||Array.isArray(snapshot.tools))
   throw Error('Invalid normalized tool contract snapshot');
- return normalizeToolSurface(Object.entries(snapshot.tools).map(([name,data])=>({name,...data})));
+ return normalizeToolSurface(Object.entries(snapshot.tools).map(([name,data])=>{
+  if(!data||typeof data!=='object'||Array.isArray(data)||Object.hasOwn(data,'name'))
+   throw Error('Invalid normalized tool entry');
+  return {...data,name}; // Map key is authoritative; no nested name override.
+ }));
 }
 function walk(a,b,p,out,maxChanges){
  if(out.length>=maxChanges)return;
@@ -75,7 +79,8 @@ function walk(a,b,p,out,maxChanges){
  if(a&&b&&typeof a==='object'&&typeof b==='object'&&!Array.isArray(a)&&!Array.isArray(b)){
   for(const k of new Set([...Object.keys(a),...Object.keys(b)].sort())){
    if(out.length>=maxChanges)break;
-   walk(a[k],b[k],p+'/'+k.replaceAll('~','~0').replaceAll('/','~1'),out,maxChanges);
+   walk(Object.hasOwn(a,k)?a[k]:undefined,Object.hasOwn(b,k)?b[k]:undefined,
+    p+'/'+k.replaceAll('~','~0').replaceAll('/','~1'),out,maxChanges);
   }
   return;
  }

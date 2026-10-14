@@ -175,3 +175,20 @@ test('contract CLI emits bounded structural paths, deterministic exit codes and 
  assert.equal(output.status,2);
  assert.ok(!output.stderr.includes(right));
 });
+test('schema comparison preserves reserved JSON property names rather than dropping them',()=>{
+ const source=JSON.parse('{"type":"object","properties":{"__proto__":{"type":"string"},"constructor":{"type":"number"}}}');
+ const original=normalizeToolSurface([{name:'probe',inputSchema:source}]);
+ const properties=original.tools.probe.inputSchema.properties;
+ assert.equal(Object.hasOwn(properties,'__proto__'),true);
+ assert.equal(properties.__proto__.type,'string');
+ assert.equal(Object.hasOwn(properties,'constructor'),true);
+ const less=normalizeToolSurface([{name:'probe',inputSchema:{type:'object',properties:{constructor:{type:'number'}}}}]);
+ const diff=compareToolSurfaces(original,less);
+ assert.equal(diff.compatible_structure,false);
+ assert.ok(diff.differences[0].changes.some(x=>x.path==='/inputSchema/properties/__proto__'));
+});
+test('normalized tool map keys cannot be overridden by nested name fields',()=>{
+ const baseline=normalizeToolSurface([{name:'bar',inputSchema:{type:'object'}}]);
+ const malformed={contract_version:1,tools:{foo:{name:'bar',inputSchema:{type:'object'},annotations:{}}}};
+ assert.throws(()=>compareToolSurfaces(malformed,baseline),/Invalid normalized tool entry/);
+});
