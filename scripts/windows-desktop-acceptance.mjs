@@ -15,22 +15,41 @@ const exec=promisify(execFile);
 let phase='startup';
 const started=Date.now();
 const mark=value=>{phase=value;console.log(JSON.stringify({phase,elapsed_ms:Date.now()-started}));};
+// Diagnostics reveal only fixed field names, value types and comparison booleans.
+export function nativeResultMetadata(text,args=[]){
+ try{
+  const result=JSON.parse(text),code=result?.error?.code??result?.code;
+  const metadata=['element_not_found','stale_element','invalid_arguments','internal_error','no_interactive_desktop','no_target','ambiguous_selector','target_moved'].includes(code)?{native_error_code:code}:{};
+  if(!['invoke','set-value'].includes(args[1]))return metadata;
+  const type=value=>value===null?'null':Array.isArray(value)?'array':typeof value;
+  const names=['elementId','element_id','hwnd','HWND','pattern','requestedAction','performedAction','success','data','error'];
+  const fields=value=>value&&typeof value==='object'?names.filter(key=>Object.hasOwn(value,key)):[];
+  const selected=result?.data??result;
+  const hwnd=selected?.hwnd,expected=args[args.indexOf('-w')+1];
+  const exactHwnd=typeof hwnd==='string'?hwnd:typeof hwnd==='number'&&Number.isSafeInteger(hwnd)?String(hwnd):null;
+  const summary={top_level_fields:fields(result),data_fields:fields(result?.data),
+   hwnd_type:type(hwnd),hwnd_matches_requested:exactHwnd!==null&&exactHwnd===expected,
+   element_id_type:type(selected?.elementId),element_id_matches_requested:selected?.elementId===args[2]};
+  const patterns=['InvokePattern','TogglePattern','SelectionItemPattern','ExpandCollapsePattern','ValuePattern'];
+  const actions=['invoke','toggle','select','expand','collapse','auto'];
+  if(patterns.includes(selected?.pattern))summary.pattern=selected.pattern;
+  if(actions.includes(selected?.requestedAction))summary.requested_action=selected.requestedAction;
+  if(actions.includes(selected?.performedAction))summary.performed_action=selected.performedAction;
+  return {...metadata,native_result:summary};
+ }catch{return {};}
+}
+const actionMetadata=result=>({outcome:['dispatched_unverified','outcome_unknown'].includes(result?.outcome)?result.outcome:'unrecognized',verified:result?.verified===true?true:result?.verified===false?false:'unrecognized'});
 export async function main(){
  assert.equal(process.platform,'win32','Native Windows required');
  assert.equal(process.versions.node.split('.')[0],'22','Node22 required');
  const controller=new AbortController(),inflight=new Set();
- const metadata=text=>{
-  try{
-   const result=JSON.parse(text),code=result.error?.code??result.code;
-   return ['element_not_found','stale_element','invalid_arguments','internal_error','no_interactive_desktop','no_target','ambiguous_selector','target_moved'].includes(code)?{native_error_code:code}:{};
-  }catch{return {};}
- };
+
  const run=(command,args,options={})=>{
   const category=command==='powershell.exe'?'session_probe':['list-windows','inspect','invoke','set-value'].includes(args[1])?args[1]:'other';
   const began=Date.now();console.log(JSON.stringify({category,event:'start'}));
   const task=exec(command,args,{encoding:'utf8',timeout:options.timeout_ms??10000,maxBuffer:4194304,windowsHide:true,signal:controller.signal})
-   .then(r=>{console.log(JSON.stringify({category,event:'result',exit_code:0,...metadata(r.stdout)}));return r.stdout;})
-   .catch(e=>{console.log(JSON.stringify({category,event:'failure',exit_code:Number.isInteger(e.code)?e.code:undefined,...metadata(e.stdout??'')}));throw new DesktopError(e.code==='ENOENT'?'driver_unavailable':e.killed?'timeout':'driver_error','Native command failed');})
+   .then(r=>{console.log(JSON.stringify({category,event:'result',exit_code:0,...nativeResultMetadata(r.stdout,args)}));return r.stdout;})
+   .catch(e=>{console.log(JSON.stringify({category,event:'failure',exit_code:Number.isInteger(e.code)?e.code:undefined,...nativeResultMetadata(e.stdout??'',args)}));throw new DesktopError(e.code==='ENOENT'?'driver_unavailable':e.killed?'timeout':'driver_error','Native command failed');})
    .finally(()=>{inflight.delete(task);console.log(JSON.stringify({category,event:'settled',elapsed_ms:Date.now()-began}));});
   inflight.add(task);return task;
  };
@@ -104,7 +123,7 @@ try { [void]$form.ShowDialog() } finally { $form.Dispose() }
   const fields=seen.elements.filter(e=>e.role==='Edit'&&e.label==='Styx Scratch Input');assert.equal(fields.length,1,'Scratch edit field must be unique');
   const action={target,snapshot_id:seen.snapshot_id,action:{type:'set_value',element_id:fields[0].id,value:marker}};
   mark('set-value');
-  const typed=await core.act(action);assert.equal(typed.outcome,'dispatched_unverified');assert.equal(typed.verified,false);
+  const typed=await core.act(action);console.log(JSON.stringify({phase,event:'core-result',...actionMetadata(typed)}));assert.equal(typed.outcome,'dispatched_unverified');assert.equal(typed.verified,false);
   mark('replay-rejection');
   if(client){const replay=await client.callTool({name:'target_desktop_act',arguments:action});assert.equal(replay.isError,true);assert.equal(replay.content.find(c=>c.type==='text')?.text,'Snapshot does not belong to this target');}
   else await assert.rejects(core.act(action),e=>e.code==='unknown_snapshot');
@@ -113,6 +132,7 @@ try { [void]$form.ShowDialog() } finally { $form.Dispose() }
   const buttons=fresh.elements.filter(e=>e.role==='Button'&&e.label==='Commit Styx Scratch');assert.equal(buttons.length,1,'Scratch button must be unique');
   mark('invoke');
   const invoked=await core.act({target,snapshot_id:fresh.snapshot_id,action:{type:'invoke',element_id:buttons[0].id}});
+  console.log(JSON.stringify({phase,event:'core-result',...actionMetadata(invoked)}));
   assert.equal(invoked.verified,false);
   mark('stdout-verification');
   let oracleTimer;
