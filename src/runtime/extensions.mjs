@@ -44,9 +44,9 @@ export class ExtensionCatalog{
 }
 
 /** Only explicitly granted, registered extensions become model-facing tools. */
-export function registerGrantedExtensions(mcp,catalog,grants,api){
- for(const id of grants){
-  const entry=catalog.get(id);
+export function registerGrantedExtensions(mcp,grantedEntries,api){
+ // Entries are a sealed, validated startup snapshot, not a late-bound catalog.
+ for(const entry of grantedEntries){
   for(const t of entry.tools){
    mcp.registerTool(t.fullName,{
     description:t.description,

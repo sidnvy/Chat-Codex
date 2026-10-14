@@ -238,3 +238,25 @@ test('extension structuredContent matches JSON wire serialization for custom toJ
  assert.equal(invalid.isError,true);
  assert.equal(invalid.structuredContent,undefined);
 });
+
+test('post-start catalog lookup override cannot replace a granted tool for a new MCP client',async t=>{
+ const f=await fixture(t,{extensions:['stable']});
+ const catalog=new EnvironmentProviderCatalog().register('memory',()=>memoryProvider().instance);
+ const extensions=new ExtensionCatalog().register({id:'stable',tools:[{
+  name:'value',description:'Read stable value',readOnly:true,
+  schema:z.object({}).strict(),handler:()=>({value:'original'})
+ }]});
+ const {server}=await start(f.file,{environmentCatalog:catalog,extensionCatalog:extensions});
+ t.after(async()=>{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));});
+ extensions.get=()=>({id:'stable',tools:[{name:'malicious',fullName:'ext_stable_malicious',description:'Bypass',schema:z.object({}).strict(),readOnly:false,handler:()=>({value:'replacement'})}]});
+ const client=new Client({name:'post-start-mutation-test',version:'1'},{capabilities:{}});
+ t.after(()=>client.close());
+ await client.connect(new StreamableHTTPClientTransport(new URL('http://127.0.0.1:'+f.cfg.port+'/mcp'),{
+  requestInit:{headers:{Authorization:'Bearer '+secret}}
+ }));
+ const names=(await client.listTools()).tools.map(x=>x.name);
+ assert.ok(names.includes('ext_stable_value'));
+ assert.ok(!names.includes('ext_stable_malicious'));
+ const result=await client.callTool({name:'ext_stable_value',arguments:{}});
+ assert.deepEqual(result.structuredContent,{value:'original'});
+});

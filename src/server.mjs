@@ -61,6 +61,7 @@ export async function start(configFile,{desktopCatalog,environmentCatalog=create
  const raw=JSON.parse(await fs.readFile(configFile,'utf8'));
  const registry=await createRegistry(raw,configFile,{allowedProviders:environmentCatalog.list()});
  const grants=extensionCatalog.validateGrants(registry.config.extensions??[]);
+ const grantedEntries=Object.freeze(grants.map(id=>extensionCatalog.get(id)));
  environmentCatalog.seal();extensionCatalog.seal();
  const router=new TargetRouter(registry,{environmentCatalog});
  const tasks=await new TaskManager(router).init();
@@ -151,7 +152,7 @@ export async function start(configFile,{desktopCatalog,environmentCatalog=create
    listProjects:()=>router.projectsList(),
    targetStatus:target=>router.status(target),
   });
-  registerGrantedExtensions(mcp,extensionCatalog,grants,extensionApi);
+  registerGrantedExtensions(mcp,grantedEntries,extensionApi);
   for(const [kind,entries] of [['host',registry.hosts],['environment',registry.environments],['project',registry.projects]]){
    for(const e of entries.values()){
     const uri='chat-codex://'+kind+'/'+encodeURIComponent(e.id);
