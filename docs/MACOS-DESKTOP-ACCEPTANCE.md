@@ -74,3 +74,14 @@ not enable Host execution/filesystem or alter `validateHost`. Successful output
 marks `authenticated_mcp:true` only when this mode actually completes. The
 shared gateway and final adapter revisions must be independently reviewed before
 a native run. No authenticated success is claimed by preparation alone.
+
+The scratch commit button deliberately keeps its application and window alive:
+it changes only its own button label/editability and emits the marker once.
+The harness verifies exact stdout and that the scratch still exists after the
+native receipt returns, then its own cleanup terminates the process. Destroying
+the target inside its click callback races native post-dispatch target checks
+and can legitimately yield an indeterminate receipt even when stdout proves the
+effect. Keeping it alive removes that artificial harness race; it does not relax
+the required `dispatched_unverified` / `verified:false` receipt or any native
+identity/session check. A prior closing-window run remains documented separately
+as verified effect with unknown receipt, never retroactively marked passing.

@@ -114,16 +114,16 @@ export async function main(){
   const source=path.join(temporary,'scratch.swift'),binary=path.join(temporary,'scratch');
   await fs.writeFile(source,`import AppKit
 final class Scratch: NSObject, NSApplicationDelegate {
- var window: NSWindow!; var field: NSTextField!
+ var window: NSWindow!; var field: NSTextField!; var button: NSButton!
  func applicationDidFinishLaunching(_ notification: Notification) {
   window=NSWindow(contentRect:NSRect(x:120,y:120,width:440,height:160),styleMask:[.titled,.closable],backing:.buffered,defer:false)
   window.title="${title}"
   field=NSTextField(frame:NSRect(x:20,y:90,width:400,height:28));field.setAccessibilityLabel("Styx Scratch Input")
-  let button=NSButton(title:"Commit Styx Scratch",target:self,action:#selector(commit));button.frame=NSRect(x:20,y:30,width:220,height:32)
+  button=NSButton(title:"Commit Styx Scratch",target:self,action:#selector(commit));button.frame=NSRect(x:20,y:30,width:220,height:32)
   window.contentView!.addSubview(field);window.contentView!.addSubview(button)
   window.makeKeyAndOrderFront(nil);window.makeFirstResponder(field);NSApp.activate(ignoringOtherApps:true)
  }
- @objc func commit() { FileHandle.standardOutput.write((field.stringValue+"\\n").data(using:.utf8)!);NSApp.terminate(nil) }
+ @objc func commit() { button.title="Committed Styx Scratch";button.isEnabled=false;field.isEditable=false;FileHandle.standardOutput.write((field.stringValue+"\\n").data(using:.utf8)!) }
 }
 let app=NSApplication.shared;let delegate=Scratch();app.setActivationPolicy(.regular);app.delegate=delegate;app.run()
 `);
@@ -132,7 +132,8 @@ let app=NSApplication.shared;let delegate=Scratch();app.setActivationPolicy(.reg
   assert.equal((await macOSSessionProbe()).ready,true,'Session must still be ready before scratch creation');
   mark('scratch-launch');
   scratch=spawn(binary,[],{stdio:['ignore','pipe','ignore']});
-  scratch.stdout.on('data',chunk=>{output+=chunk;if(output.length>4096)scratch.kill();});
+  let signalOutput;const observedOutput=new Promise(resolve=>{signalOutput=resolve;});
+  scratch.stdout.on('data',chunk=>{output+=chunk;if(output.includes('\n'))signalOutput();if(output.length>4096)scratch.kill();});
   closed=new Promise((resolve,reject)=>{scratch.once('error',reject);scratch.once('close',resolve);});closed.catch(()=>{});
   const run=async()=>{
    let selected;
@@ -160,8 +161,8 @@ let app=NSApplication.shared;let delegate=Scratch();app.setActivationPolicy(.reg
    const result=await core.act({target,snapshot_id:fresh.snapshot_id,action:{type:'invoke',element_id:buttons[0].id}});
    assert.equal(result.verified,false);
    mark('stdout-verification');
-   assert.equal(await closed,0);assert.equal(output.trim(),marker);
-   console.log(JSON.stringify({independently_verified_effect:true,scratch_stdout_verified:true,action_outcome:result.outcome}));
+   await observedOutput;assert.equal(output.trim(),marker);assert.equal(scratch.exitCode,null,'Scratch remains alive through native receipt verification');
+   console.log(JSON.stringify({independently_verified_effect:true,scratch_stdout_verified:true,scratch_kept_alive:true,action_outcome:result.outcome}));
    assert.equal(result.outcome,'dispatched_unverified');
    console.log(JSON.stringify({passed:true,authenticated_mcp:authenticated,shared_core:true,native_macos:true,screenshot:true,replay_rejected:true,scratch_stdout_verified:true}));
   };
