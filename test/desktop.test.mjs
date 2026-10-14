@@ -31,7 +31,7 @@ test('desktop registry enforces explicit capability and target matching before I
   async status(){called++;return {driver:'hyprland',state:'ready',ready:true,capabilities:['windows']};},
   async observe(input){called++;return input.mode==='windows'?
    {driver:'hyprland',windows:[{id:'w1',title:'Scratch'}]}:
-   {driver:'hyprland',window:{id:'w1',title:'Scratch'},receipt:{window_id:'w1'},image:{mimeType:'image/png',data:'QUJD'}};},
+   {driver:'hyprland',window:{id:'w1',title:'Scratch'},receipt:{window_id:'w1'},image:{mimeType:'image/png',data:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII='}};},
   async act(receipt,action){called++;return {outcome:'dispatched_unverified',verified:false,action_type:action.type};}
  };
  const d=new DesktopManager(registry(),{driverFactory:()=>fake,clock:()=>now});
@@ -41,7 +41,7 @@ test('desktop registry enforces explicit capability and target matching before I
  assert.equal((await d.status(host)).ready,true);
  assert.equal((await d.observe({target:host,mode:'windows'})).windows[0].title,'Scratch');
  const x=await d.observe({target:host,mode:'window',window_id:'w1'});
- assert.ok(x.snapshot_id&&x.image.data==='QUJD');
+ assert.ok(x.snapshot_id&&x.image.data==='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=');
  await assert.rejects(d.act({target:environment,snapshot_id:x.snapshot_id,action:{type:'key',key:'Return'}}),/not enabled/);
  const a=await d.act({target:host,snapshot_id:x.snapshot_id,action:{type:'type',text:'probe'}});
  assert.equal(a.verified,false);

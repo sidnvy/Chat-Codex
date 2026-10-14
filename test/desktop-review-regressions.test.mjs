@@ -59,3 +59,26 @@ test('all built-in window catalogs mark truncated titles so wait cannot treat pr
  assert.equal(w.windows[0].title,long.slice(0,128));
  assert.equal(w.windows[0].title_truncated,true);
 });
+
+
+test('Desktop rejects noncanonical base64 and non-PNG captures before minting snapshots',async()=>{
+ const png='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
+ for(const data of ['QUJD','',png+' ',png.replace('=',''),png.slice(0,-2)+'J=',Buffer.from([0,80,78,71,13,10,26,10]).toString('base64')]){
+  const d=broker({status:ready,async observe(){return {window:{id:'w1'},receipt:{window_id:'w1'},image:{mimeType:'image/png',data}};},async act(){throw Error('unexpected');}});
+  await assert.rejects(d.observe({target,mode:'window',window_id:'w1'}),e=>e.code==='invalid_capture');
+  assert.equal(d.snapshots.size,0);
+ }
+});
+
+test('Hyprland inventories distinguish 100 visible windows from overflow',async()=>{
+ for(const count of [99,100,101]){
+  const clients=Array.from({length:count},(_,i)=>({address:'w'+i,title:i===99?'Scratch':'Window '+i,mapped:true}));
+  clients.push({address:'hidden',hidden:true},{address:'unmapped',mapped:false});
+  const hypr=new HyprlandDesktop(async(_command,args)=>JSON.stringify(args[1]==='clients'?clients:args[1]==='monitors'?[{name:'test'}]:{locked:false}));
+  const inventory=await hypr.observe({mode:'windows'});
+  assert.equal(inventory.windows.length,Math.min(count,100));
+  assert.equal(inventory.truncated,count>100);
+  if(count===100)assert.equal((await broker(hypr).wait({target,condition:{type:'window_present',title:'Scratch'},timeout_ms:100})).matched,true);
+  if(count>100)await assert.rejects(broker(hypr).wait({target,condition:{type:'window_present',title:'Scratch'},timeout_ms:100}),e=>e.code==='incomplete_observation');
+ }
+});

@@ -49,8 +49,12 @@ export class DesktopManager {
   }))throw new DesktopError('invalid_driver_response','Receipt does not bind the requested window');
   if(observed.image){
    const {mimeType,data}=observed.image;
-   if(mimeType!=='image/png'||typeof data!=='string'||Buffer.byteLength(data,'base64')>DESKTOP_IMAGE_LIMIT_BYTES)
+   if(mimeType!=='image/png'||typeof data!=='string'||data.length>4*Math.ceil(DESKTOP_IMAGE_LIMIT_BYTES/3))
     throw new DesktopError('invalid_capture','Desktop image must be a bounded PNG');
+   const bytes=Buffer.from(data,'base64');
+   if(bytes.length>DESKTOP_IMAGE_LIMIT_BYTES||bytes.toString('base64')!==data||
+    !bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))
+    throw new DesktopError('invalid_capture','Desktop image must contain canonical base64 PNG bytes');
   }
   if(this.snapshots.size>=64){
    for(const [id,item] of this.snapshots)if(item.expires_at<=this.clock())this.snapshots.delete(id);
