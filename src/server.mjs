@@ -1,10 +1,10 @@
+import {startLoopbackMcp} from './protocol/loopback.mjs';
+import {registerDesktopTools} from './protocol/desktop-tools.mjs';
+import {show,failed} from './protocol/results.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import crypto from 'node:crypto';
-import http from 'node:http';
 import {fileURLToPath} from 'node:url';
 import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js';
-import {StreamableHTTPServerTransport} from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import {z} from 'zod';
 import {createRegistry,idSchema,targetSchema,pathSchema,commandSchema,timeoutSchema,listProjects} from './resources.mjs';
 import {TargetRouter} from './router.mjs';
@@ -13,7 +13,6 @@ import {searchResources} from './mentions.mjs';
 import {DesktopManager} from './desktop/manager.mjs';
 import {createBuiltInEnvironmentCatalog} from './runtime/providers.mjs';
 import {ExtensionCatalog,registerGrantedExtensions} from './runtime/extensions.mjs';
-import {desktopObserveSchema,desktopActSchema,desktopWaitSchema} from './desktop/contract.mjs';
 
 const empty=z.object({}).strict();
 const targetArgs=targetSchema;
@@ -25,8 +24,6 @@ const writeArgs=z.object({target:targetArgs,path:pathSchema,content:z.string().m
 const patchArgs=z.object({target:targetArgs,path:pathSchema,patch:z.string().min(1).max(32768)}).strict();
 const taskArgs=z.object({target:targetArgs,session_id:z.string().regex(/^[a-f0-9]{24}$/)}).strict();
 const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-const show=(data)=>({content:[{type:'text',text:JSON.stringify(data)}],structuredContent:Array.isArray(data)?{items:data}:data});
-const failed=e=>({isError:true,content:[{type:'text',text:String(e.message??e).slice(0,500)}]});
 async function snapshot(router,tasks){
  const projects=router.projectsList(),hosts=router.hostsList(),environments=await router.environmentsList();
  const recent=[...tasks.records.values()].slice(-10).reverse().map(t=>({id:t.id,status:t.status,target:t.target,exit_code:t.exit_code,termination:t.termination}));
@@ -71,8 +68,6 @@ export async function start(configFile,{desktopCatalog,environmentCatalog=create
  const st=await fs.lstat(tokenFile);
  if(!st.isFile()||(st.mode&0o077))throw Error('Token file must be regular and 0600');
  const token=(await fs.readFile(tokenFile,'utf8')).trim();
- if(!/^[a-zA-Z0-9_-]{43,}$/.test(token))throw Error('Invalid token');
- const digest=crypto.createHash('sha256').update('Bearer '+token).digest();
  const appTemplate=await fs.readFile(new URL('../app/home.html',import.meta.url),'utf8');
  function protocol(){
   const mcp=new McpServer({name:'Chat-Codex',version:'0.3.0'});
@@ -106,22 +101,7 @@ export async function start(configFile,{desktopCatalog,environmentCatalog=create
    return p;
   },true);
   register('target_status','Status of an explicitly typed registered Host or Environment.',z.object({target:targetArgs}).strict(),a=>router.status(a.target),true);
-  register('target_desktop_status','Read Desktop readiness separately from Host connection.',z.object({target:targetArgs}).strict(),a=>desktops.status(a.target),true);
-  mcp.registerTool('target_desktop_observe',{
-   description:'Read windows or capture an exact active window and mint a short-lived target-bound screenshot. Images are ephemeral.',
-   inputSchema:desktopObserveSchema,annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true}
-  },async a=>{
-   try{
-    const observed=await desktops.observe(a);
-    const {image,...result}=observed;
-    return {content:[{type:'text',text:JSON.stringify(result)},...(image?[{type:'image',data:image.data,mimeType:image.mimeType}]:[])],structuredContent:result};
-   }catch(e){return failed(e);}
-  });
-  register('target_desktop_act','Execute a single action against a fresh target-bound Desktop snapshot.',desktopActSchema,a=>desktops.act(a));
-  mcp.registerTool('target_desktop_wait',{description:'Wait for an exact window title with a bounded timeout.',inputSchema:desktopWaitSchema,annotations:{readOnlyHint:true,destructiveHint:false}},async a=>{
-   try{const result=await desktops.wait(a);return {...show(result),isError:!result.matched};}
-   catch(e){return failed(e);}
-  });
+  registerDesktopTools(mcp,desktops);
 
   const execTool=(name,description,schema,op,transform,read=false)=>{
    mcp.registerTool(name,{description,inputSchema:schema,annotations:{readOnlyHint:read,destructiveHint:!read,idempotentHint:read}},async a=>{
@@ -166,31 +146,7 @@ export async function start(configFile,{desktopCatalog,environmentCatalog=create
   }
   return mcp;
  }
- const server=http.createServer(async(req,res)=>{
-  const reply=(code,message)=>{res.writeHead(code,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify({error:message}));};
-  if(!['127.0.0.1:'+port,'localhost:'+port].includes(req.headers.host)||req.headers.origin)return reply(403,'Host or Origin refused');
-  if(req.url==='/healthz'&&req.method==='GET'){res.writeHead(200,{'content-type':'application/json'});return res.end('{"ok":true,"scope":"process only"}');}
-  if(req.url!=='/mcp'||!['POST','GET','DELETE'].includes(req.method))return reply(404,'Not found');
-  const authNames=req.rawHeaders.filter((_,i)=>i%2===0).filter(x=>x.toLowerCase()==='authorization');
-  if(authNames.length!==1||!crypto.timingSafeEqual(digest,crypto.createHash('sha256').update(req.headers.authorization??'').digest()))return reply(401,'Unauthorized');
-  let mcp,transport;
-  try{
-   let body;
-   if(req.method==='POST'){
-    let bytes=0;const chunks=[];
-    for await(const chunk of req){bytes+=chunk.length;if(bytes>262144){reply(413,'Request too large');return;}chunks.push(chunk);}
-    try{body=JSON.parse(Buffer.concat(chunks).toString());}catch{return reply(400,'Invalid JSON');}
-    if(Array.isArray(body))return reply(400,'Batch requests unsupported');
-   }
-   mcp=protocol();
-   transport=new StreamableHTTPServerTransport({sessionIdGenerator:undefined,enableJsonResponse:true});
-   res.on('close',()=>{transport.close();mcp.close();});
-   await mcp.connect(transport);
-   await transport.handleRequest(req,res,body);
-  }catch(e){console.error('MCP request failed:',String(e.message).slice(0,200));if(!res.headersSent)reply(500,'Request failed');}
- });
- server.headersTimeout=10000;server.requestTimeout=330000;
- await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(port,'127.0.0.1',resolve);});
+ const server=await startLoopbackMcp({port,token,protocol});
  return {server,router,tasks,registry};
 }
 if(process.argv[1]===fileURLToPath(import.meta.url)){
