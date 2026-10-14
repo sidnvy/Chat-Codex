@@ -100,3 +100,13 @@ test('Peekaboo empty screenshot preserves semantic observation and snapshot-boun
  assert.equal((await d.act({target,snapshot_id:observed.snapshot_id,action:{type:'invoke',element_id:'B1'}})).outcome,'dispatched_unverified');
  assert.deepEqual(calls.at(-1),['click','--on','B1','--snapshot','semantic-snapshot','--json']);
 });
+
+
+test('Peekaboo oversized nonempty captures reach manager validation rather than being omitted',async()=>{
+ const peek=new PeekabooDesktop(async(_command,args)=>JSON.stringify({success:true,data:
+  args[0]==='permissions'?{permissions:[{name:'Screen Recording',isGranted:true},{name:'Accessibility',isGranted:true}]}:
+  {snapshot_id:'oversized',screenshot_raw:'A'.repeat(2800000)}}));
+ const d=broker(peek);
+ await assert.rejects(d.observe({target,mode:'window',window_id:'123'}),e=>e.code==='invalid_capture');
+ assert.equal(d.snapshots.size,0);
+});

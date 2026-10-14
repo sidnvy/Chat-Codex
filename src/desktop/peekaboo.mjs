@@ -32,7 +32,7 @@ export class PeekabooDesktop {
   }));
   return {driver:this.driver,window:{id:window_id,title:String(data.window_title??window_id).slice(0,128),app:window_id},
    elements,receipt:{snapshot_id:data.snapshot_id,window_id},
-   ...(typeof data.screenshot_raw==='string'&&data.screenshot_raw.length>0&&data.screenshot_raw.length<2800000?
+   ...(typeof data.screenshot_raw==='string'&&data.screenshot_raw.length>0?
     {image:{mimeType:'image/png',data:data.screenshot_raw}}:{})};
  }
  async act(receipt,action){

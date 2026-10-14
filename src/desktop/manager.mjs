@@ -18,8 +18,13 @@ export class DesktopManager {
   // Registry admission is mandatory before any CLI or Desktop backend request.
   const resolved=resolveTarget(this.registry,target);
   const option=resolved.entry.capabilities?.desktop;
-  if(!option?.enabled)throw new DesktopError('desktop_not_enabled','Desktop capability not enabled for registered target');
   const key=target.kind+':'+target.id;
+  if(!option?.enabled){
+   this.drivers.delete(key);
+   for(const [id,snapshot] of this.snapshots)
+    if(snapshot.target.kind===target.kind&&snapshot.target.id===target.id)this.snapshots.delete(id);
+   throw new DesktopError('desktop_not_enabled','Desktop capability not enabled for registered target');
+  }
   const current=this.drivers.get(key);
   // Never retain an old driver after an administrator changes the grant.
   if(!current||current.name!==option.driver)

@@ -162,3 +162,16 @@ test('fixture set is complete and transport-neutral',()=>{
  assert.deepEqual(fixtures.cases.map(x=>x.id).sort(),Object.keys(cases).sort());
 });
 for(const item of fixtures.cases)test('S2 desktop contract: '+item.id,async()=>cases[item.id]());
+
+
+test('observed grant revocation permanently invalidates snapshots even when a factory reuses a driver',async()=>{
+ const {manager,registry}=harness();
+ const driver=manager.select(alpha);
+ manager.driverFactory=()=>driver;
+ const seen=await observe(manager);
+ registry.hosts.get('alpha').capabilities.desktop.enabled=false;
+ assert.equal((await manager.status(alpha)).ready,false);
+ registry.hosts.get('alpha').capabilities.desktop.enabled=true;
+ await assert.rejects(act(manager,seen.snapshot_id),rejection('unknown_snapshot'));
+ assert.ok((await observe(manager)).snapshot_id);
+});
