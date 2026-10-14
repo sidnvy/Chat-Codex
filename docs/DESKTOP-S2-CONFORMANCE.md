@@ -43,9 +43,9 @@ External operating-system tools such as Hyprland CLI utilities, Peekaboo, and Wi
 ## Acceptance gates and remaining gaps
 
 1. This PR: portable behavioral fixtures and Styx local unit/contract tests; live MCP HTTP smoke tests may establish protocol behavior but **do not** establish GUI mutation on other OSes.
-2. Next PR: extract one reusable Desktop Core contract from the Styx manager, with a Provider-supplied binding and no dependence on MCP/SSH envelopes. Keep the existing Gateway thin.
+2. Shared Core extraction: `DesktopCore` owns behavioral semantics with injected admission and trusted driver bindings; `DesktopManager` is the Registry compatibility adapter. See `DESKTOP-CORE-COMPOSITION.md`. The Gateway remains unchanged.
 3. Adapter PRs: complete exact-window/session hardening and platform-compatible driver bindings. No duplicate broker in the Charon distribution.
 4. Independent Styx authenticated MCP E2E: actual harmless Observe → Act → Verify on Linux, macOS, and Windows, separately. Synthetic fixtures and previous Charon tests do **not** count as Styx acceptance.
 5. After platform acceptance and license/provenance checks: publish an approved pinned Styx package and test an isolated Charon consumer integration, before any production migration.
 
-Current incompatibilities: Styx's DesktopManager still imports Registry admission directly, while Charon has remote-dispatch ownership; the underlying remote workers are not reusable via a public pinned package yet. macOS and Windows Styx authenticated real-GUI E2E have not been established. Charon production and installed Plugin/App identities remain unchanged.
+Current incompatibilities: Charon still owns independent remote-dispatch and broker semantics; its remote workers are not reusable via a public pinned Styx package yet. The Core composition seam alone does not establish consumer compatibility. macOS and Windows Styx authenticated real-GUI E2E have not been established. Charon production and installed Plugin/App identities remain unchanged.
