@@ -45,7 +45,7 @@ function canonical(value,context='schema'){
    context==='schemaSet'||context==='schemaSequence'?'schema':'literal';
   const entries=value.map(item=>canonical(item,elementContext));
   return ['set','enum','schemaSet'].includes(context)
-   ?entries.sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)))
+   ?entries.sort((a,b)=>{const left=JSON.stringify(a),right=JSON.stringify(b);return left<right?-1:left>right?1:0;})
    :entries;
  }
  if(value&&typeof value==='object'){
@@ -77,6 +77,8 @@ export function normalizeToolSurface(raw,{names}={}){
   if(Object.hasOwn(table,tool.name))throw Error('Duplicate MCP tool name: '+tool.name);
   if(!tool.inputSchema||typeof tool.inputSchema!=='object'||Array.isArray(tool.inputSchema))
    throw Error('Missing input schema for '+tool.name);
+  if(Object.hasOwn(tool,'annotations')&&(!tool.annotations||typeof tool.annotations!=='object'||Array.isArray(tool.annotations)))
+   throw Error('Invalid annotation container for '+tool.name);
   const annotations={};
   for(const flag of ANNOTATIONS){
    // Deliberately record null for missing annotations: "unspecified" is not

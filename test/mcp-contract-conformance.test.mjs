@@ -281,3 +281,18 @@ test('dependentRequired, draft-07 dependencies and multivalued type compare as u
  const c=make(['number','string'],['b','different'],['b','a']);
  assert.equal(compareToolSurfaces(a,c).compatible_structure,false);
 });
+
+test('unordered schema keywords use a total code-unit ordering for canonically equivalent Unicode members',()=>{
+ const composed='é',decomposed='e\u0301';
+ const make=required=>normalizeToolSurface([{name:'test',inputSchema:{type:'object',required}}]);
+ const first=make([composed,decomposed]);
+ const second=make([decomposed,composed]);
+ assert.equal(compareToolSurfaces(first,second).compatible_structure,true);
+});
+test('malformed non-object annotation containers fail rather than becoming absent annotations',()=>{
+ const correct=normalizeToolSurface([{name:'test',inputSchema:{type:'object'}}]);
+ for(const value of [[],null,'readOnlyHint',1,true]){
+  const invalid=structuredClone(correct);invalid.tools.test.annotations=value;
+  assert.throws(()=>compareToolSurfaces(invalid,correct),/annotation container/i);
+ }
+});
