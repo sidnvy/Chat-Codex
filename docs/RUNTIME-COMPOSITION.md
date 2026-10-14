@@ -64,7 +64,9 @@ Two independent conditions are required:
 
 If either is absent, the tool is not registered. An unrecognized grant fails
 startup rather than falling back to another extension. Once the Server starts,
-registries are sealed against changing factories.
+registries are sealed against changing factories, and granted extension tool
+definitions are snapshotted at startup rather than looked up for every MCP
+connection. Late changes to public catalog methods do not change the tool surface.
 
 Tool names are automatically namespaced `ext_<id>_<action>`. Extensions
 cannot overwrite built-in `target_*`, `host_*`, `environment_*`,

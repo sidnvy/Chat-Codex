@@ -10,14 +10,15 @@ const mutateAnnotations={readOnlyHint:false,destructiveHint:true,idempotentHint:
  * appear. This registry is not a sandbox for untrusted JavaScript modules.
  */
 export class ExtensionCatalog{
- constructor(){this.entries=new Map();this.sealed=false;}
- seal(){this.sealed=true;return this;}
+ #entries=new Map();
+ #sealed=false;
+ seal(){this.#sealed=true;return this;}
  register(extension){
-  if(this.sealed)throw Error('Extension catalog is sealed');
+  if(this.#sealed)throw Error('Extension catalog is sealed');
   const {id,tools}=extension??{};
   if(typeof id!=='string'||!ID.test(id)||!Array.isArray(tools)||
    tools.length<1||tools.length>16)throw Error('Invalid extension registration');
-  if(this.entries.has(id))throw Error('Duplicate extension namespace: '+id);
+  if(this.#entries.has(id))throw Error('Duplicate extension namespace: '+id);
   const names=new Set();
   const definitions=tools.map(tool=>{
    if(!tool||typeof tool.name!=='string'||!ACTION.test(tool.name)||
@@ -29,23 +30,23 @@ export class ExtensionCatalog{
    names.add(tool.name);
    return Object.freeze({...tool,fullName:'ext_'+id+'_'+tool.name});
   });
-  this.entries.set(id,Object.freeze({id,tools:Object.freeze(definitions)}));
+  this.#entries.set(id,Object.freeze({id,tools:Object.freeze(definitions)}));
   return this;
  }
- list(){return [...this.entries.keys()];}
- get(id){return this.entries.get(id);}
+ list(){return [...this.#entries.keys()];}
+ get(id){return this.#entries.get(id);}
  validateGrants(ids=[]){
   if(!Array.isArray(ids)||new Set(ids).size!==ids.length||
-   ids.some(id=>typeof id!=='string'||!this.entries.has(id)))
+   ids.some(id=>typeof id!=='string'||!this.#entries.has(id)))
     throw Error('Private configuration grants an unavailable extension');
   return Object.freeze([...ids]);
  }
 }
 
 /** Only explicitly granted, registered extensions become model-facing tools. */
-export function registerGrantedExtensions(mcp,catalog,grants,api){
- for(const id of grants){
-  const entry=catalog.get(id);
+export function registerGrantedExtensions(mcp,grantedEntries,api){
+ // Entries are a sealed, validated startup snapshot, not a late-bound catalog.
+ for(const entry of grantedEntries){
   for(const t of entry.tools){
    mcp.registerTool(t.fullName,{
     description:t.description,
@@ -59,8 +60,9 @@ export function registerGrantedExtensions(mcp,catalog,grants,api){
      const serialized=JSON.stringify(value);
      if(typeof serialized!=='string'||Buffer.byteLength(serialized)>MAX_OUTPUT)
       throw Error('invalid_extension_output');
+     const normalized=JSON.parse(serialized); // Match the actual JSON wire value.
      return {content:[{type:'text',text:serialized}],
-      structuredContent:value&&typeof value==='object'&&!Array.isArray(value)?value:{value}};
+      structuredContent:normalized&&typeof normalized==='object'&&!Array.isArray(normalized)?normalized:{value:normalized}};
     }catch{
      return {isError:true,content:[{type:'text',text:'Extension operation failed; no automatic retry.'}]};
     }

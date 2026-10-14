@@ -24,12 +24,17 @@ export class TargetRouter {
   assertLifecycleReceipt(receipt);
   if(receipt.id!==entry.id||receipt.provider!==entry.provider)
    throw Error('Environment Provider receipt identity mismatch');
-  return receipt;
+  if(receipt.kind!==undefined&&receipt.kind!=='environment')
+   throw Error('Environment Provider kind mismatch');
+  if(receipt.project!==undefined&&receipt.project!==entry.project)
+   throw Error('Environment Provider Project mismatch');
+  const {kind: _ignoredKind,...providerResult}=receipt;
+  return {...providerResult,id:entry.id,provider:entry.provider,project:entry.project};
  }
  async status(target){
   const {entry,project}=this.resolve(target);
   if(target.kind==='host')return {id:entry.id,kind:'host',connection:'connected',ready:true,unsandboxed:true,project:entry.project,capabilities:this.hostCapabilities(entry)};
-  return {kind:'environment',...await this.providerReceipt(entry,await this.providers.get(entry.provider).status(entry,project))};
+  return {...await this.providerReceipt(entry,await this.providers.get(entry.provider).status(entry,project)),kind:'environment'};
  }
  async environmentsList(){
   const result=[];

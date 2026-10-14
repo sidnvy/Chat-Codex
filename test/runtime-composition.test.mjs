@@ -171,6 +171,14 @@ test('providers must not forge target identity or report ready while stopped',as
  await assert.rejects(router.status({kind:'environment',id:'sandbox'}),/identity mismatch/);
  fake.instance.status=async()=>({id:'sandbox',provider:'memory',lifecycle:'stopped',ready:true});
  await assert.rejects(router.status({kind:'environment',id:'sandbox'}),/Inconsistent lifecycle readiness/);
+ fake.instance.status=async()=>({id:'sandbox',provider:'memory',lifecycle:'running',ready:true,kind:'host'});
+ await assert.rejects(router.status({kind:'environment',id:'sandbox'}),/kind mismatch/);
+ fake.instance.status=async()=>({id:'sandbox',provider:'memory',lifecycle:'running',ready:true,project:'wrong'});
+ await assert.rejects(router.status({kind:'environment',id:'sandbox'}),/Project mismatch/);
+ fake.instance.status=async()=>({id:'sandbox',provider:'memory',lifecycle:'running',ready:true,kind:'environment'});
+ const observed=await router.status({kind:'environment',id:'sandbox'});
+ assert.equal(observed.kind,'environment');
+ assert.equal(observed.project,'default');
  fake.instance.status=async()=>({id:'sandbox',provider:'other',lifecycle:'running',ready:true});
  await assert.rejects(router.status({kind:'environment',id:'sandbox'}),/identity mismatch/);
 });
@@ -185,4 +193,70 @@ test('once a Server is initialized, trusted Provider and extension catalogs cann
  t.after(async()=>{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));});
  assert.throws(()=>c.register('late',()=>({})),/sealed/);
  assert.throws(()=>e.register({id:'late',tools:[]}),/sealed/);
+});
+test('sealed registries do not expose mutable internal maps',()=>{
+ const p=new EnvironmentProviderCatalog().register('memory',()=>memoryProvider().instance).seal();
+ const e=new ExtensionCatalog().register({id:'private',tools:[{
+  name:'ping',description:'Ping',schema:z.object({}).strict(),readOnly:true,handler:()=>({ok:true})
+ }]}).seal();
+ assert.equal(p.factories,undefined);
+ assert.equal(e.entries,undefined);
+ // Public property assignment cannot substitute privately held tables.
+ p.factories=new Map([['evil',()=>memoryProvider().instance]]);
+ e.entries=new Map([['private',{id:'private',tools:[{name:'evil'}]}]]);
+ assert.deepEqual(p.list(),['memory']);
+ assert.deepEqual(e.get('private').tools.map(x=>x.fullName),['ext_private_ping']);
+ assert.throws(()=>p.register('evil',()=>memoryProvider().instance),/sealed/);
+ assert.throws(()=>e.register({id:'evil',tools:[]}),/sealed/);
+});
+
+test('extension structuredContent matches JSON wire serialization for custom toJSON values',async t=>{
+ const f=await fixture(t,{extensions:['serialized']});
+ const providers=new EnvironmentProviderCatalog().register('memory',()=>memoryProvider().instance);
+ const schema=z.object({}).strict();
+ const extensions=new ExtensionCatalog().register({id:'serialized',tools:[
+  {name:'date',description:'Return date',readOnly:true,schema,handler:()=>new Date('2026-10-14T00:00:00.000Z')},
+  {name:'array',description:'Return object JSON array',readOnly:true,schema,handler:()=>({toJSON:()=>[1,2]})},
+  {name:'scalar',description:'Return object JSON scalar',readOnly:true,schema,handler:()=>({toJSON:()=>42})},
+  {name:'null',description:'Return null JSON',readOnly:true,schema,handler:()=>null},
+  {name:'invalid',description:'Return undefined JSON',readOnly:true,schema,handler:()=>undefined},
+ ]});
+ const {server}=await start(f.file,{environmentCatalog:providers,extensionCatalog:extensions});
+ t.after(async()=>{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));});
+ const client=new Client({name:'serialization-proof',version:'1'},{capabilities:{}});
+ t.after(()=>client.close());
+ await client.connect(new StreamableHTTPClientTransport(new URL('http://127.0.0.1:'+f.cfg.port+'/mcp'),{
+  requestInit:{headers:{Authorization:'Bearer '+secret}}
+ }));
+ for(const [tool,value] of [['date','2026-10-14T00:00:00.000Z'],['array',[1,2]],['scalar',42],['null',null]]){
+  const result=await client.callTool({name:'ext_serialized_'+tool,arguments:{}});
+  assert.notEqual(result.isError,true,tool);
+  assert.deepEqual(result.structuredContent,{value},tool);
+  assert.deepEqual(JSON.parse(result.content[0].text),value,tool);
+ }
+ const invalid=await client.callTool({name:'ext_serialized_invalid',arguments:{}});
+ assert.equal(invalid.isError,true);
+ assert.equal(invalid.structuredContent,undefined);
+});
+
+test('post-start catalog lookup override cannot replace a granted tool for a new MCP client',async t=>{
+ const f=await fixture(t,{extensions:['stable']});
+ const catalog=new EnvironmentProviderCatalog().register('memory',()=>memoryProvider().instance);
+ const extensions=new ExtensionCatalog().register({id:'stable',tools:[{
+  name:'value',description:'Read stable value',readOnly:true,
+  schema:z.object({}).strict(),handler:()=>({value:'original'})
+ }]});
+ const {server}=await start(f.file,{environmentCatalog:catalog,extensionCatalog:extensions});
+ t.after(async()=>{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));});
+ extensions.get=()=>({id:'stable',tools:[{name:'malicious',fullName:'ext_stable_malicious',description:'Bypass',schema:z.object({}).strict(),readOnly:false,handler:()=>({value:'replacement'})}]});
+ const client=new Client({name:'post-start-mutation-test',version:'1'},{capabilities:{}});
+ t.after(()=>client.close());
+ await client.connect(new StreamableHTTPClientTransport(new URL('http://127.0.0.1:'+f.cfg.port+'/mcp'),{
+  requestInit:{headers:{Authorization:'Bearer '+secret}}
+ }));
+ const names=(await client.listTools()).tools.map(x=>x.name);
+ assert.ok(names.includes('ext_stable_value'));
+ assert.ok(!names.includes('ext_stable_malicious'));
+ const result=await client.callTool({name:'ext_stable_value',arguments:{}});
+ assert.deepEqual(result.structuredContent,{value:'original'});
 });
