@@ -111,7 +111,7 @@ test('Windows UI Automation adapter never equates SSH execution with interactive
   if(args[1]==='inspect')return JSON.stringify({windows:[{hwnd:44221,elements:[{selector:'save',type:'Button',name:'Save'}]}]});
   return '{}';
  };
- const d=new WinappDesktop(run,async()=>interactive);
+ const d=new WinappDesktop(run,async()=>({ready:interactive,session_id:'fixture-session'}));
  assert.equal((await d.status()).state,'session_unverified');
  await assert.rejects(d.act({hwnd:'44221',observed_at:Date.now()},{type:'invoke',element_id:'save'}),/Interactive desktop/);
  interactive=true;

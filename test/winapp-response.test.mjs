@@ -14,7 +14,7 @@ test('WinApp top-level list-windows arrays preserve HWND and report real count',
   if(args[1]==='inspect')return JSON.stringify({windows:[{hwnd:'223344',elements:[{selector:'btn-save-1234',type:'Button',name:'Save'}]}]});
   return '{}';
  };
- const driver=new WinappDesktop(run,async()=>true);
+ const driver=new WinappDesktop(run,async()=>({ready:true,session_id:'fixture-session'}));
  const status=await driver.status();
  assert.equal(status.window_count,2);
  const listed=await driver.observe({mode:'windows'});
@@ -38,7 +38,7 @@ test('WinApp exact target rejects titles, vanished HWNDs, and changed process ow
   if(args[1]==='inspect')return JSON.stringify({windows:[{hwnd:'970001',elements:[{id:'textbox',controlType:'Edit'}]}]});
   return '{}';
  };
- const driver=new WinappDesktop(run,async()=>true);
+ const driver=new WinappDesktop(run,async()=>({ready:true,session_id:'fixture-session'}));
  await assert.rejects(driver.observe({mode:'window',window_id:'Editor'}),/numeric HWND/);
  const receipt=(await driver.observe({mode:'window',window_id:'970001'})).receipt;
  assert.equal(receipt.pid,'11');
@@ -52,16 +52,16 @@ test('WinApp exact target rejects titles, vanished HWNDs, and changed process ow
 test('WinApp inspect refuses mismatched nested windows and bounds nested element output',async()=>{
  const elements=Array.from({length:115},(_,i)=>({selector:'element-'+i,type:'Text',name:'item'}));
  const run=async(bin,args)=>{
-  if(args[1]==='list-windows')return JSON.stringify([{hwnd:33,title:'Scratch'}]);
+  if(args[1]==='list-windows')return JSON.stringify([{hwnd:33,title:'Scratch',pid:7}]);
   if(args[1]==='inspect')return JSON.stringify({windows:[{hwnd:'33',elements}]});
   return '{}';
  };
- const d=new WinappDesktop(run,async()=>true);
+ const d=new WinappDesktop(run,async()=>({ready:true,session_id:'fixture-session'}));
  assert.equal((await d.observe({mode:'window',window_id:'33'})).elements.length,100);
  const mismatch=new WinappDesktop(async(bin,args)=>{
-  if(args[1]==='list-windows')return JSON.stringify([{hwnd:33,title:'Scratch'}]);
+  if(args[1]==='list-windows')return JSON.stringify([{hwnd:33,title:'Scratch',pid:7}]);
   return JSON.stringify({windows:[{hwnd:99,elements:[{id:'unsafe'}]}]});
- },async()=>true);
+ },async()=>({ready:true,session_id:'fixture-session'}));
  await assert.rejects(mismatch.observe({mode:'window',window_id:'33'}),/no longer matches/);
 });
 test('WinApp keeps session readiness independent of UIA list availability',async()=>{
@@ -69,6 +69,6 @@ test('WinApp keeps session readiness independent of UIA list availability',async
  const d=new WinappDesktop(run,async()=>false);
  const state=await d.status();
  assert.equal(state.ready,false);
- assert.equal(state.window_count,1);
+ assert.equal(state.state,'session_unverified');
  await assert.rejects(d.act({hwnd:'9001',observed_at:Date.now()},{type:'invoke',element_id:'x'}),/Interactive desktop/);
 });
