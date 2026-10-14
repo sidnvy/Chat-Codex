@@ -60,8 +60,9 @@ export function registerGrantedExtensions(mcp,catalog,grants,api){
      const serialized=JSON.stringify(value);
      if(typeof serialized!=='string'||Buffer.byteLength(serialized)>MAX_OUTPUT)
       throw Error('invalid_extension_output');
+     const normalized=JSON.parse(serialized); // Match the actual JSON wire value.
      return {content:[{type:'text',text:serialized}],
-      structuredContent:value&&typeof value==='object'&&!Array.isArray(value)?value:{value}};
+      structuredContent:normalized&&typeof normalized==='object'&&!Array.isArray(normalized)?normalized:{value:normalized}};
     }catch{
      return {isError:true,content:[{type:'text',text:'Extension operation failed; no automatic retry.'}]};
     }
