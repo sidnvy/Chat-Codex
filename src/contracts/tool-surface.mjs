@@ -8,22 +8,22 @@
 const IGNORE_SCHEMA_FIELDS=new Set(['description','title','$comment','examples']);
 const ANNOTATIONS=['readOnlyHint','destructiveHint','idempotentHint','openWorldHint'];
 const SORTED_SET_ARRAYS=new Set(['required','enum','oneOf','anyOf','allOf']);
-const SAFE_NAME=/^[a-z][a-z0-9_]{0,90}$/;
+const SAFE_NAME=/^[A-Za-z0-9_.-]{1,128}$/;
 export const TOOL_CONTRACT_VERSION=1;
 
-function canonical(value,key='',isPropertyMap=false){
+function canonical(value,key='',isPropertyMap=false,isLiteral=false){
  if(Array.isArray(value)){
-  const entries=value.map(v=>canonical(v));
-  return SORTED_SET_ARRAYS.has(key)
+  const entries=value.map(v=>canonical(v,'',false,isLiteral||key==='enum'));
+  return !isLiteral&&SORTED_SET_ARRAYS.has(key)
    ?entries.sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)))
    :entries;
  }
  if(value&&typeof value==='object'){
   const object={};
   for(const field of Object.keys(value).sort()){
-   if(!isPropertyMap&&IGNORE_SCHEMA_FIELDS.has(field))continue;
+   if(!isPropertyMap&&!isLiteral&&IGNORE_SCHEMA_FIELDS.has(field))continue;
    const next=value[field];
-   if(next!==undefined)Object.defineProperty(object,field,{value:canonical(next,field,['properties','patternProperties','$defs','definitions','dependentSchemas','dependentRequired','dependencies'].includes(field)),enumerable:true,configurable:true,writable:true});
+   if(next!==undefined)Object.defineProperty(object,field,{value:canonical(next,field,!isLiteral&&['properties','patternProperties','$defs','definitions','dependentSchemas','dependentRequired','dependencies'].includes(field),isLiteral||field==='const'),enumerable:true,configurable:true,writable:true});
   }
   return object;
  }

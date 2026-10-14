@@ -224,3 +224,32 @@ test('diff truncated is only true when at least one changed path was omitted',()
  assert.equal(overflow.differences[0].changes.length,1);
  assert.equal(overflow.differences[0].truncated,true);
 });
+
+test('const and enum literal object keys are never mistaken for schema metadata',()=>{
+ for(const value of ['red','blue']){
+  const snapshot=normalizeToolSurface([{name:'x',inputSchema:{type:'object',const:{title:value,description:'literal'},enum:[{title:value,description:'literal'}]}}]);
+  const v=snapshot.tools.x.inputSchema;
+  assert.equal(v.const.title,value);
+  assert.equal(v.const.description,'literal');
+  assert.equal(v.enum[0].title,value);
+  assert.equal(v.enum[0].description,'literal');
+ }
+ const a=normalizeToolSurface([{name:'x',inputSchema:{const:{title:'red'},enum:[{description:'red'}]}}]);
+ const b=normalizeToolSurface([{name:'x',inputSchema:{const:{title:'blue'},enum:[{description:'blue'}]}}]);
+ const compared=compareToolSurfaces(a,b);
+ assert.equal(compared.compatible_structure,false);
+ assert.ok(compared.differences[0].changes.some(x=>x.path.includes('/const/title')));
+ assert.ok(compared.differences[0].changes.some(x=>x.path.includes('/enum')));
+ const left=normalizeToolSurface([{name:'x',inputSchema:{const:{enum:[2,1]}}}]);
+ const right=normalizeToolSurface([{name:'x',inputSchema:{const:{enum:[1,2]}}}]);
+ assert.equal(compareToolSurfaces(left,right).compatible_structure,false,'Literal arrays must not be sorted');
+});
+test('protocol-valid selected tool names include dots, hyphens and uppercase',()=>{
+ const names=['vendor.search','foo-bar','UI.Tool_1'];
+ const raw=names.map(name=>({name,inputSchema:{type:'object'}}));
+ const full=normalizeToolSurface(raw);
+ assert.deepEqual(Object.keys(full.tools).sort(),names.slice().sort());
+ const subset=normalizeToolSurface(raw,{names:['vendor.search']});
+ assert.deepEqual(Object.keys(subset.tools),['vendor.search']);
+ assert.throws(()=>normalizeToolSurface([{name:'a'.repeat(129),inputSchema:{type:'object'}}]),/Invalid/);
+});
