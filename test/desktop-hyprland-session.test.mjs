@@ -69,3 +69,19 @@ test('Hyprland reports uncertain outcome when target changes after pointer movem
  assert.equal(result.outcome,'outcome_unknown');assert.equal(result.verified,false);
  assert.deepEqual(state.dispatches,['ydotool']); // movement only, never a blind click
 });
+
+test('Hyprland captures long titles while binding the complete private title',async()=>{
+ const {state,driver,observe}=fixture();state.title='x'.repeat(128)+' private suffix one';
+ const inventory=await driver.observe({mode:'windows'});
+ assert.equal(inventory.windows[0].title,'x'.repeat(128));
+ assert.equal(inventory.windows[0].title_truncated,true);
+ assert.ok(!Object.keys(inventory.windows[0]).includes('title_digest'));
+ assert.ok(!JSON.stringify(inventory).includes('private suffix'));
+ assert.equal(JSON.parse(JSON.stringify(inventory)).windows[0].title_digest,undefined);
+ const observed=await observe();assert.ok(observed.image);assert.match(observed.receipt.title_digest,/^[a-f0-9]{64}$/);
+ assert.ok(!JSON.stringify(observed).includes('private suffix'));
+ assert.equal((await driver.act(observed.receipt,{type:'key',key:'Return'})).outcome,'dispatched_unverified');
+ state.title='x'.repeat(128)+' private suffix two';
+ await assert.rejects(driver.act(observed.receipt,{type:'key',key:'Return'}),e=>e.code==='stale_target');
+ assert.equal(state.dispatches.length,1);
+});

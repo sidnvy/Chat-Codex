@@ -1,6 +1,6 @@
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {DesktopError} from './contract.mjs';
+import {DesktopError} from './primitives.mjs';
 const exec=promisify(execFile);
 export async function localDesktopExec(executable,args=[],options={}){
  if(!Array.isArray(args)||args.some(x=>typeof x!=='string'))throw new DesktopError('invalid_argument','Executable arguments must be strings');

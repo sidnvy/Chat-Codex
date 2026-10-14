@@ -32,11 +32,23 @@ test('packed artifact exposes portable Core without loading gateway dependencies
   await symlink(path.dirname(require.resolve('zod/package.json')),path.join(modules,'zod'));
   const manifest=JSON.parse(await readFile(path.join(modules,'package/package.json'),'utf8'));
   assert.deepEqual({name:manifest.name,version:manifest.version,private:manifest.private},{name:'chat-codex',version:'0.3.0',private:true});
-  assert.deepEqual(manifest.exports,{'./desktop/core':'./src/desktop/core.mjs','./desktop/contract':'./src/desktop/contract.mjs'});
+  assert.deepEqual(manifest.exports,{'./desktop/core':'./src/desktop/core.mjs','./desktop/contract':'./src/desktop/contract.mjs','./desktop/hyprland-worker':'./src/desktop/hyprland-worker.mjs'});
   await writeFile(path.join(consumer,'smoke.mjs'),`
 import assert from 'node:assert/strict';
 import {DesktopCore} from 'chat-codex/desktop/core';
 import {DesktopError,desktopObserveSchema} from 'chat-codex/desktop/contract';
+import {createHyprlandWorkerSource} from 'chat-codex/desktop/hyprland-worker';
+import {spawnSync} from 'node:child_process';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
+const empty=mkdtempSync(path.join(tmpdir(),'styx-installed-worker-'));
+try{
+ const source=createHyprlandWorkerSource();
+ assert.ok(Buffer.byteLength(source)<100000);
+ const run=spawnSync(process.execPath,['-e',source,'--',Buffer.from(JSON.stringify({operation:'invalid'})).toString('base64')],{cwd:empty,env:{PATH:''},encoding:'utf8'});
+ assert.equal(run.status,1);assert.deepEqual(JSON.parse(run.stdout),{ok:false,error:'invalid_operation'});
+}finally{rmSync(empty,{recursive:true,force:true});}
 const target={kind:'host',id:'fixture'};
 assert.equal(desktopObserveSchema.parse({target,mode:'windows'}).mode,'windows');
 assert.equal(new DesktopError('fixture','test').code,'fixture');

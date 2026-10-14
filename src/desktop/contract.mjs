@@ -23,11 +23,8 @@ export const desktopWaitSchema=z.object({
  condition:z.object({type:z.literal('window_present'),title:z.string().min(1).max(128)}).strict(),
  timeout_ms:z.number().int().min(100).max(10000).default(3000)
 }).strict();
-export const DESKTOP_SNAPSHOT_TTL_MS=30000;
-export const DESKTOP_IMAGE_LIMIT_BYTES=2097152;
-export class DesktopError extends Error{
- constructor(code,message){super(message);this.name='DesktopError';this.code=code;}
-}
+import {DesktopError} from './primitives.mjs';
+export {DesktopError,DESKTOP_SNAPSHOT_TTL_MS,DESKTOP_IMAGE_LIMIT_BYTES} from './primitives.mjs';
 export function verifyDesktopDriver(driver){
  for(const key of ['status','observe','act'])if(typeof driver?.[key]!=='function')throw new DesktopError('invalid_driver','Desktop driver missing '+key);
  return driver;
