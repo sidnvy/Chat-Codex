@@ -10,14 +10,15 @@ const mutateAnnotations={readOnlyHint:false,destructiveHint:true,idempotentHint:
  * appear. This registry is not a sandbox for untrusted JavaScript modules.
  */
 export class ExtensionCatalog{
- constructor(){this.entries=new Map();this.sealed=false;}
- seal(){this.sealed=true;return this;}
+ #entries=new Map();
+ #sealed=false;
+ seal(){this.#sealed=true;return this;}
  register(extension){
-  if(this.sealed)throw Error('Extension catalog is sealed');
+  if(this.#sealed)throw Error('Extension catalog is sealed');
   const {id,tools}=extension??{};
   if(typeof id!=='string'||!ID.test(id)||!Array.isArray(tools)||
    tools.length<1||tools.length>16)throw Error('Invalid extension registration');
-  if(this.entries.has(id))throw Error('Duplicate extension namespace: '+id);
+  if(this.#entries.has(id))throw Error('Duplicate extension namespace: '+id);
   const names=new Set();
   const definitions=tools.map(tool=>{
    if(!tool||typeof tool.name!=='string'||!ACTION.test(tool.name)||
@@ -29,14 +30,14 @@ export class ExtensionCatalog{
    names.add(tool.name);
    return Object.freeze({...tool,fullName:'ext_'+id+'_'+tool.name});
   });
-  this.entries.set(id,Object.freeze({id,tools:Object.freeze(definitions)}));
+  this.#entries.set(id,Object.freeze({id,tools:Object.freeze(definitions)}));
   return this;
  }
- list(){return [...this.entries.keys()];}
- get(id){return this.entries.get(id);}
+ list(){return [...this.#entries.keys()];}
+ get(id){return this.#entries.get(id);}
  validateGrants(ids=[]){
   if(!Array.isArray(ids)||new Set(ids).size!==ids.length||
-   ids.some(id=>typeof id!=='string'||!this.entries.has(id)))
+   ids.some(id=>typeof id!=='string'||!this.#entries.has(id)))
     throw Error('Private configuration grants an unavailable extension');
   return Object.freeze([...ids]);
  }

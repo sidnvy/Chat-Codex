@@ -171,6 +171,14 @@ test('providers must not forge target identity or report ready while stopped',as
  await assert.rejects(router.status({kind:'environment',id:'sandbox'}),/identity mismatch/);
  fake.instance.status=async()=>({id:'sandbox',provider:'memory',lifecycle:'stopped',ready:true});
  await assert.rejects(router.status({kind:'environment',id:'sandbox'}),/Inconsistent lifecycle readiness/);
+ fake.instance.status=async()=>({id:'sandbox',provider:'memory',lifecycle:'running',ready:true,kind:'host'});
+ await assert.rejects(router.status({kind:'environment',id:'sandbox'}),/kind mismatch/);
+ fake.instance.status=async()=>({id:'sandbox',provider:'memory',lifecycle:'running',ready:true,project:'wrong'});
+ await assert.rejects(router.status({kind:'environment',id:'sandbox'}),/Project mismatch/);
+ fake.instance.status=async()=>({id:'sandbox',provider:'memory',lifecycle:'running',ready:true,kind:'environment'});
+ const observed=await router.status({kind:'environment',id:'sandbox'});
+ assert.equal(observed.kind,'environment');
+ assert.equal(observed.project,'default');
  fake.instance.status=async()=>({id:'sandbox',provider:'other',lifecycle:'running',ready:true});
  await assert.rejects(router.status({kind:'environment',id:'sandbox'}),/identity mismatch/);
 });
@@ -185,4 +193,19 @@ test('once a Server is initialized, trusted Provider and extension catalogs cann
  t.after(async()=>{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));});
  assert.throws(()=>c.register('late',()=>({})),/sealed/);
  assert.throws(()=>e.register({id:'late',tools:[]}),/sealed/);
+});
+test('sealed registries do not expose mutable internal maps',()=>{
+ const p=new EnvironmentProviderCatalog().register('memory',()=>memoryProvider().instance).seal();
+ const e=new ExtensionCatalog().register({id:'private',tools:[{
+  name:'ping',description:'Ping',schema:z.object({}).strict(),readOnly:true,handler:()=>({ok:true})
+ }]}).seal();
+ assert.equal(p.factories,undefined);
+ assert.equal(e.entries,undefined);
+ // Public property assignment cannot substitute privately held tables.
+ p.factories=new Map([['evil',()=>memoryProvider().instance]]);
+ e.entries=new Map([['private',{id:'private',tools:[{name:'evil'}]}]]);
+ assert.deepEqual(p.list(),['memory']);
+ assert.deepEqual(e.get('private').tools.map(x=>x.fullName),['ext_private_ping']);
+ assert.throws(()=>p.register('evil',()=>memoryProvider().instance),/sealed/);
+ assert.throws(()=>e.register({id:'evil',tools:[]}),/sealed/);
 });

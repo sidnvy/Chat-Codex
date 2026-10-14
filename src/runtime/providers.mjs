@@ -5,21 +5,22 @@ import {DockerEnvironmentProvider} from '../docker-provider.mjs';
 // MCP arguments or a model-controlled config path.
 const NAME=/^[a-z][a-z0-9-]{0,62}$/;
 export class EnvironmentProviderCatalog{
- constructor(){this.factories=new Map();this.sealed=false;}
- seal(){this.sealed=true;return this;}
+ #factories=new Map();
+ #sealed=false;
+ seal(){this.#sealed=true;return this;}
  register(name,factory){
-  if(this.sealed)throw Error('Environment Provider catalog is sealed');
+  if(this.#sealed)throw Error('Environment Provider catalog is sealed');
   if(typeof name!=='string'||!NAME.test(name)||typeof factory!=='function')
    throw Error('Invalid Environment Provider registration');
-  if(this.factories.has(name))throw Error('Duplicate Environment Provider: '+name);
-  this.factories.set(name,factory);
+  if(this.#factories.has(name))throw Error('Duplicate Environment Provider: '+name);
+  this.#factories.set(name,factory);
   return this;
  }
- has(name){return this.factories.has(name);}
- list(){return [...this.factories.keys()];}
+ has(name){return this.#factories.has(name);}
+ list(){return [...this.#factories.keys()];}
  create(name,registry){
   if(!this.has(name))throw Error('Unregistered Environment Provider: '+String(name));
-  const provider=this.factories.get(name)(registry);
+  const provider=this.#factories.get(name)(registry);
   assertEnvironmentProvider(provider);
   return provider;
  }
