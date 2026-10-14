@@ -18,7 +18,8 @@
     "test:all": "npm test && npm run test:integration",
     "test:plugin": "node --test test/plugin.test.mjs",
     "test:provider": "node --test test/provider-contract.test.mjs",
-    "test:contracts": "node --test test/mcp-contract-conformance.test.mjs"
+    "test:contracts": "node --test test/mcp-contract-conformance.test.mjs",
+    "test:package": "node --test test/package-artifact.test.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.31.0",
@@ -26,5 +27,22 @@
   },
   "devDependencies": {
     "ajv": "8.18.0"
-  }
+  },
+  "exports": {
+    "./desktop/core": "./src/desktop/core.mjs",
+    "./desktop/contract": "./src/desktop/contract.mjs"
+  },
+  "files": [
+    "src/",
+    "app/",
+    "scripts/",
+    "schemas/",
+    "contracts/",
+    "examples/",
+    "skills/",
+    "docs/",
+    "plugin.json",
+    "mcp.json",
+    "THIRD_PARTY.md"
+  ]
 }
