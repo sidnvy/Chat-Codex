@@ -9,6 +9,8 @@ const bounded=value=>String(value??'').slice(0,128);
 const invalid=message=>new DesktopError('invalid_driver_response',message);
 const decimal=value=>typeof value==='string'&&/^[1-9][0-9]*$/.test(value);
 export class PeekabooDesktop {
+ #locators=new Map();
+ #locatorSession;
  constructor(run=localDesktopExec,sessionProbe=async()=>null,clock=()=>Date.now()){this.run=run;this.sessionProbe=sessionProbe;this.clock=clock;this.driver='peekaboo';}
  async call(args){
   const result=parseCommandJson(await this.run('peekaboo',[...args,'--json']),this.driver);
@@ -31,7 +33,8 @@ export class PeekabooDesktop {
  }
  async ready(session_id){
   const status=await this.status();
-  if(!status.ready)throw new DesktopError(status.state,'Desktop session is not ready');
+  if(!status.ready){this.#locators.clear();this.#locatorSession=undefined;throw new DesktopError(status.state,'Desktop session is not ready');}
+  if(this.#locatorSession!==status.session_id){this.#locators.clear();this.#locatorSession=status.session_id;}
   if(session_id&&status.session_id!==session_id)throw new DesktopError('stale_target','Desktop session changed');
   return status.session_id;
  }
@@ -59,7 +62,9 @@ export class PeekabooDesktop {
    catch{truncated=true;}
    if(windows.length>100){truncated=true;break;}
   }
-  return {windows:windows.slice(0,100),truncated};
+  const counts=new Map();
+  for(const window of windows)counts.set(window.id,(counts.get(window.id)??0)+1);
+  return {windows:windows.slice(0,100),truncated,duplicate_ids:new Set([...counts].filter(([,count])=>count>1).map(([id])=>id))};
  }
  async assertReceipt(receipt){
   await this.ready(receipt.session_id);
@@ -68,24 +73,35 @@ export class PeekabooDesktop {
   if(!app||!decimal(receipt.process_start)||app.process_start_identity_decimal!==receipt.process_start)
    throw new DesktopError('stale_target','Window process changed since observation');
   const {windows}=await this.windows(app);
-  const window=windows.find(w=>w.id===receipt.window_id);
+  const matches=windows.filter(w=>w.id===receipt.window_id);
+  const window=matches.length===1?matches[0]:undefined;
   if(!window||window.full_title!==receipt.title)throw new DesktopError('stale_target','Window identity or title changed since observation');
   await this.ready(receipt.session_id);
   const age=this.clock()-receipt.observed_at;
   if(!Number.isFinite(receipt.observed_at)||age<0||age>=30000)throw new DesktopError('stale_target','Capture expired during target validation');
+  return window;
  }
  async observe({mode,window_id}){
   const session_id=await this.ready();
   if(mode!=='windows'&&!decimal(window_id))throw new DesktopError('invalid_argument','An exact numeric window ID is required');
-  const inventory=await this.inventory();
-  await this.ready(session_id);
   const publicWindow=({full_title,process_start,...window})=>window;
-  if(mode==='windows')return {driver:this.driver,windows:inventory.windows.map(publicWindow),truncated:inventory.truncated};
-  const matches=inventory.windows.filter(w=>w.id===window_id);
-  if(matches.length!==1)throw new DesktopError('target_not_found','Exact window not found uniquely in bounded inventory');
-  const window=matches[0];
-  const receipt={window_id,pid:window.pid,title:window.full_title,process_start:window.process_start,session_id,observed_at:this.clock()};
-  await this.assertReceipt(receipt);
+  let locator=mode==='windows'?undefined:this.#locators.get(window_id);
+  if(!locator){
+   const inventory=await this.inventory();
+   await this.ready(session_id);
+   this.#locators.clear();
+   for(const window of inventory.windows){
+    if(!inventory.duplicate_ids.has(window.id))this.#locators.set(window.id,{
+     id:window.id,pid:window.pid,full_title:window.full_title,process_start:window.process_start,session_id
+    });
+   }
+   if(mode==='windows')return {driver:this.driver,windows:inventory.windows.map(publicWindow),truncated:inventory.truncated};
+   locator=this.#locators.get(window_id);
+  }
+  if(!locator||locator.session_id!==session_id)throw new DesktopError('target_not_found','Exact window not found uniquely in bounded inventory');
+  const receipt={window_id,pid:locator.pid,title:locator.full_title,process_start:locator.process_start,session_id,observed_at:this.clock()};
+  // A locator only chooses which PID to query. Every capture still validates live state.
+  const window=await this.assertReceipt(receipt);
   const tmp=await fs.mkdtemp(path.join(os.tmpdir(),'styx-peekaboo-'));
   try{
    const dest=path.join(tmp,'capture.png');
@@ -112,8 +128,8 @@ export class PeekabooDesktop {
      image={mimeType:'image/png',data:bytes.subarray(0,bytesRead).toString('base64')};
     }finally{await handle.close();}
    }
-   await this.assertReceipt(receipt);
-   return {driver:this.driver,window:publicWindow(window),elements,receipt:{...receipt,snapshot_id:data.snapshot_id,element_ids:elements.map(e=>e.id)},...(image?{image}:{})};
+   const currentWindow=await this.assertReceipt(receipt);
+   return {driver:this.driver,window:publicWindow(currentWindow),elements,receipt:{...receipt,snapshot_id:data.snapshot_id,element_ids:elements.map(e=>e.id)},...(image?{image}:{})};
   }finally{await fs.rm(tmp,{recursive:true,force:true});}
  }
  async act(receipt,action){

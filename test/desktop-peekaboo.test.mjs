@@ -105,3 +105,66 @@ test('Peekaboo cannot dispatch when its capture expires during an awaited identi
  await assert.rejects(action,e=>e.code==='stale_target');
  assert.equal(inputCalls(state).length,0);
 });
+function multipleApps(){
+ const fixture=peekabooFixture();const {state}=fixture;
+ state.mutate=async(args,data)=>{
+  if(args[0]==='app')data.apps.push({pid:99,name:'Unrelated',process_start_identity_decimal:'999'});
+  if(args[0]==='window'&&args[3]==='99'){
+   data.target_application_info.pid=99;data.windows=[{window_id:456,window_title:'Unrelated'}];
+  }
+ };
+ return fixture;
+}
+test('Peekaboo exact observation reuses a locator but rechecks only its live PID windows',async()=>{
+ const {state,driver}=multipleApps();
+ await driver.observe({mode:'windows'});state.calls=[];
+ const seen=await observe(driver);
+ assert.equal(seen.window.title,'Scratch');assert.equal(seen.window.pid,42);
+ assert.deepEqual(state.calls.filter(a=>a[0]==='window').map(a=>a[3]),['42','42']);
+ assert.equal(state.calls.filter(a=>a[0]==='app').length,2);
+ assert.equal(state.calls.filter(a=>a[0]==='see').length,1);
+ await driver.act(seen.receipt,{type:'type',text:'fresh'});
+ assert.equal(state.calls.filter(a=>a[0]==='app').length,3);
+});
+test('Peekaboo stale locators cannot authorize capture after PID, generation or title changes',async()=>{
+ for(const field of ['pid','start','title']){
+  const {state,driver}=multipleApps();await driver.observe({mode:'windows'});state.calls=[];
+  if(field==='pid')state.pid=43;if(field==='start')state.start='987';if(field==='title')state.title='Changed';
+  await assert.rejects(observe(driver),e=>e.code==='stale_target');
+  assert.equal(state.calls.filter(a=>a[0]==='see').length,0);
+  await driver.observe({mode:'windows'});
+  assert.equal((await observe(driver)).window.title,state.title);
+ }
+});
+test('Peekaboo session change discards locator and requires rediscovery',async()=>{
+ const {state,driver}=multipleApps();await driver.observe({mode:'windows'});state.calls=[];
+ state.session={ready:true,session_id:'new-session'};state.title='New session title';
+ const seen=await observe(driver);
+ assert.equal(seen.window.title,state.title);
+ assert.ok(state.calls.some(a=>a[0]==='window'&&a[3]==='99'));
+});
+test('Peekaboo duplicate discovery IDs never become authoritative locators',async()=>{
+ const {state,driver}=multipleApps();const original=state.mutate;
+ state.mutate=async(args,data)=>{await original(args,data);if(args[0]==='window'&&args[3]==='99')data.windows[0].window_id=123;};
+ await driver.observe({mode:'windows'});state.calls=[];
+ await assert.rejects(observe(driver),e=>e.code==='target_not_found');
+ assert.ok(state.calls.some(a=>a[0]==='window'&&a[3]==='99'));
+ assert.equal(state.calls.some(a=>a[0]==='see'),false);
+});
+test('Peekaboo rejects duplicate live IDs even when prior discovery was unique',async()=>{
+ const {state,driver}=multipleApps();await driver.observe({mode:'windows'});const original=state.mutate;
+ state.mutate=async(args,data)=>{await original(args,data);if(args[0]==='window'&&args[3]==='42')data.windows.push({...data.windows[0]});};
+ await assert.rejects(observe(driver),e=>e.code==='stale_target');
+ assert.equal(state.calls.some(a=>a[0]==='see'),false);
+});
+test('Peekaboo locators are bounded to100 and exclude duplicate IDs beyond the output slice',async()=>{
+ for(const duplicate of [false,true]){
+  const {state,driver}=peekabooFixture();
+  state.mutate=async(args,data)=>{if(args[0]==='window')data.windows=Array.from({length:101},(_,i)=>({window_id:duplicate&&i===100?1:i+1,window_title:'Window'}));};
+  const listed=await driver.observe({mode:'windows'});
+  assert.equal(listed.windows.length,100);assert.equal(listed.truncated,true);state.calls=[];
+  await assert.rejects(driver.observe({mode:'window',window_id:duplicate?'1':'101'}),e=>e.code==='target_not_found');
+  assert.equal(state.calls.filter(a=>a[0]==='window').length,1);
+  assert.equal(state.calls.some(a=>a[0]==='see'),false);
+ }
+});
