@@ -11,6 +11,7 @@
   "scripts": {
     "start": "node src/server.mjs",
     "setup": "node scripts/setup.mjs",
+    "doctor": "node scripts/doctor.mjs",
     "test": "node --test test/*.test.mjs",
     "test:integration": "node test/integration.mjs",
     "test:host": "node --test test/host.test.mjs",
