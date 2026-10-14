@@ -17,7 +17,8 @@
     "test:host": "node --test test/host.test.mjs",
     "test:all": "npm test && npm run test:integration",
     "test:plugin": "node --test test/plugin.test.mjs",
-    "test:provider": "node --test test/provider-contract.test.mjs"
+    "test:provider": "node --test test/provider-contract.test.mjs",
+    "test:contracts": "node --test test/mcp-contract-conformance.test.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.1",
