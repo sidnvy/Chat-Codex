@@ -82,3 +82,21 @@ test('Hyprland inventories distinguish 100 visible windows from overflow',async(
   if(count>100)await assert.rejects(broker(hypr).wait({target,condition:{type:'window_present',title:'Scratch'},timeout_ms:100}),e=>e.code==='incomplete_observation');
  }
 });
+
+
+test('Peekaboo empty screenshot preserves semantic observation and snapshot-bound action',async()=>{
+ const calls=[];
+ const peek=new PeekabooDesktop(async(_command,args)=>{
+  calls.push(args);
+  const data=args[0]==='permissions'?{permissions:[{name:'Screen Recording',isGranted:true},{name:'Accessibility',isGranted:true}]}:
+   args[0]==='see'?{snapshot_id:'semantic-snapshot',screenshot_raw:'',ui_elements:[{id:'B1',role:'button',label:'Save'}]}:{};
+  return JSON.stringify({success:true,data});
+ });
+ const d=broker(peek);
+ const observed=await d.observe({target,mode:'window',window_id:'123'});
+ assert.ok(observed.snapshot_id);
+ assert.equal(Object.hasOwn(observed,'image'),false);
+ assert.equal(observed.elements[0].id,'B1');
+ assert.equal((await d.act({target,snapshot_id:observed.snapshot_id,action:{type:'invoke',element_id:'B1'}})).outcome,'dispatched_unverified');
+ assert.deepEqual(calls.at(-1),['click','--on','B1','--snapshot','semantic-snapshot','--json']);
+});
