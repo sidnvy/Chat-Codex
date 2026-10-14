@@ -70,7 +70,7 @@ test('Hyprland native adapter uses JSON IPC and dispatches only focused fingerpr
  assert.equal((await d.status()).ready,true);
  const windows=await d.observe({mode:'windows'});
  assert.equal(windows.windows[0].geometry.width,400);
- const receipt={window_id:'0x123',pid:123,title:'Scratch',geometry,session_id:(await d.status()).session_id};
+ const receipt={window_id:'0x123',pid:123,title_digest:windows.windows[0].title_digest,geometry,session_id:(await d.status()).session_id};
  await d.act(receipt,{type:'type',text:'hello'});
  assert.ok(calls.some(x=>x[0]==='wtype'&&x.includes('hello')));
  await d.act(receipt,{type:'click',x:5,y:6});

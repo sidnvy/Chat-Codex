@@ -5,6 +5,7 @@ import path from 'node:path';
 import {DesktopError,DESKTOP_IMAGE_LIMIT_BYTES} from './primitives.mjs';
 import {localDesktopExec,parseCommandJson} from './exec.mjs';
 const bounded=s=>String(s??'').slice(0,128);
+const titleDigest=value=>createHash('sha256').update(String(value??'')).digest('hex');
 export class HyprlandDesktop {
  constructor(run=localDesktopExec,sessionIdentity=()=>process.env.HYPRLAND_INSTANCE_SIGNATURE){
   this.run=run;this.sessionIdentity=sessionIdentity;this.driver='hyprland';
@@ -34,11 +35,11 @@ export class HyprlandDesktop {
   const raw=await this.read('clients');
   if(!Array.isArray(raw))throw new DesktopError('invalid_driver_response','Hyprland clients must be an array');
   const visible=raw.filter(x=>x.mapped!==false&&x.hidden!==true);
-  const windows=visible.slice(0,100).map(x=>({
+  const windows=visible.slice(0,100).map(x=>Object.defineProperty({
    id:bounded(x.address),title:bounded(x.title),title_truncated:String(x.title??'').length>128,app:bounded(x.class),
    pid:Number.isSafeInteger(x.pid)&&x.pid>0?x.pid:null,
    workspace:bounded(x.workspace?.name),geometry:{x:x.at?.[0],y:x.at?.[1],width:x.size?.[0],height:x.size?.[1]}
-  }));
+  },'title_digest',{value:titleDigest(x.title)}));
   return {windows,truncated:visible.length>100};
  }
  async windows(){return (await this.inventory()).windows;}
@@ -48,7 +49,7 @@ export class HyprlandDesktop {
   if(!receipt||receipt.session_id!==status.session_id||!Number.isSafeInteger(receipt.pid)||receipt.pid<=0)
    throw new DesktopError('stale_target','Window identity or session changed since observation');
   const active=await this.read('activewindow');
-  if(this.sessionId()!==receipt.session_id||active.address!==receipt.window_id||active.pid!==receipt.pid||active.title!==receipt.title||JSON.stringify({
+  if(this.sessionId()!==receipt.session_id||active.address!==receipt.window_id||active.pid!==receipt.pid||titleDigest(active.title)!==receipt.title_digest||JSON.stringify({
    x:active.at?.[0],y:active.at?.[1],width:active.size?.[0],height:active.size?.[1]
   })!==JSON.stringify(receipt.geometry))throw new DesktopError('stale_target','Window identity/geometry changed since observation');
  }
@@ -57,7 +58,7 @@ export class HyprlandDesktop {
   if(mode==='windows')return {driver:this.driver,windows,truncated};
   const window=windows.find(x=>x.id===window_id);
   if(!window)throw new DesktopError('target_not_found','Exact window not found');
-  const receipt={window_id:window.id,pid:window.pid,title:window.title,geometry:window.geometry,session_id:this.sessionId()};
+  const receipt={window_id:window.id,pid:window.pid,title_digest:window.title_digest,geometry:window.geometry,session_id:this.sessionId()};
   await this.assertReceipt(receipt);
   const {x,y,width,height}=window.geometry;
   if(![x,y,width,height].every(Number.isInteger)||width<1||height<1||width>8192||height>8192)throw new DesktopError('invalid_window','Invalid window bounds');
