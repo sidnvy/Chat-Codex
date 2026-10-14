@@ -69,6 +69,22 @@ The setup tool creates a private v2 config and Bearer token in a 0700 directory,
 
 The server binds only `127.0.0.1:8791`, requires Bearer authorization, and rejects unexpected Host/Origin headers. `/healthz` proves only the process is live, not Environment readiness. Never expose this endpoint publicly without a correctly configured private tunnel/gateway.
 
+## Read-only installation Doctor (v0.4 development)
+
+Run `npm run doctor` or `npm run --silent doctor -- --json` to inspect local
+prerequisites and configuration without provisioning containers, changing
+system security settings, reading token contents or altering private files.
+The script accepts `--config /absolute/private/config.json` or the
+`CHAT_CODEX_CONFIG` environment variable.
+
+A fresh system before setup is expected to show `action_required`; Doctor
+identifies which prerequisites are missing and what to configure next.
+`ready` means **local preflight only**: it is not an authenticated MCP
+smoke test, verified ChatGPT account installation, or proof that the graphical
+desktop is unlocked. See [v0.4 product plan](docs/V0.4-PRODUCT-PLAN.md).
+Guided setup, a real first-run verifier and the capability dashboard are
+planned separately and are not yet included in this Doctor PR.
+
 ## Provision an Environment
 
 Using an authenticated MCP client:
