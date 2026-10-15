@@ -3,19 +3,19 @@ import path from 'node:path';
 import os from 'node:os';
 import {createInterface} from 'node:readline/promises';
 import {createSetup} from '../src/setup.mjs';
-const usage='Usage: npm run setup -- [/absolute/new-project /absolute/new-private-dir] [--backend docker|host|both] [--port 8791]\nNo arguments starts guided setup in an interactive terminal. Docker is the default.';
+const usage='Usage: npm run setup -- [/absolute/new-project /absolute/new-private-dir] [--backend docker|host|both] [--port 8791]\nNo arguments starts guided setup in an interactive terminal. Host is the default; container environments are optional.';
 const quote=s=>"'"+s.replaceAll("'","'\\''")+"'";
 async function main(){
  const args=process.argv.slice(2);
  if(args.includes('--help')||args.includes('-h')){console.log(usage);return;}
- let project,privateDir,backend='docker',port=8791;
+ let project,privateDir,backend='host',port=8791;
  if(!args.length){
   if(!process.stdin.isTTY)throw Error('Guided setup requires a terminal. Supply two absolute new directory paths, or use --help.');
   const rl=createInterface({input:process.stdin,output:process.stdout});
   try{
    console.log('Styx first-run setup (Linux). No existing files are overwritten.');
    console.log('Docker isolates development commands. Host access runs with your full user permissions.');
-   backend=(await rl.question('Backend [docker / host / both] (docker): ')).trim()||'docker';
+   backend=(await rl.question('Backend [host / both / docker] (host): ')).trim()||'host';
    if(!['docker','host','both'].includes(backend))throw Error('Choose docker, host or both.');
    if(backend!=='docker'&&(await rl.question('Enable unsandboxed same-user Host access? Type yes: ')).trim()!=='yes')throw Error('Host setup cancelled.');
    project=(await rl.question('New Project directory ('+path.join(os.homedir(),'styx-project')+'): ')).trim()||path.join(os.homedir(),'styx-project');
@@ -27,6 +27,7 @@ async function main(){
   const seen=new Set();
   while(args.length){const flag=args.shift(),value=args.shift();if(!['--backend','--port'].includes(flag)||!value||seen.has(flag))throw Error(usage);seen.add(flag);if(flag==='--backend')backend=value;else port=Number(value);}
  }
+ if(args.length===0&&process.argv.length>2&&backend!=='docker'&&!process.argv.includes('--backend'))throw Error('For noninteractive Host setup, explicitly select --backend host or use agent onboarding authorization.');
  const result=await createSetup({project,privateDir,backend,port});
  console.log('Configuration created: '+result.configFile);
  if(backend!=='docker')console.log('Host access enabled explicitly: UNSANDBOXED, same-user filesystem and network.');

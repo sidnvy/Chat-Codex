@@ -1,8 +1,18 @@
-# Start Styx from a clean checkout
+# Styx onboarding: agent entry and operator reference
 
-The first supported path is a **non-root Linux user, Node.js 22+ and Docker Engine**. Styx runs a local authenticated MCP server; Docker supplies disposable execution environments. Desktop control is optional and disabled by default.
+For a guided experience, give your local Codex agent the prompt in [INSTALL.md](../INSTALL.md). It starts with device selection and access authorization; the commands below are the underlying operator interface, not steps a novice must type. The agent procedure is [Styx Onboarding](../skills/styx-onboarding/SKILL.md).
+
+The supported automatic local path is a **non-root Linux user with Node.js 22+**. Styx runs a local authenticated MCP server with explicitly authorized Host execution. Docker supplies optional disposable execution environments. Desktop control is optional and disabled by default.
 
 The package still identifies itself as `chat-codex@0.3.0` and is marked `private: true`. Install from this public repository, not an assumed `npm install -g styx` release. For repeatable deployments, check out a reviewed commit before `npm ci`. `npm pack` produces an artifact for trusted consumers; it does not publish a release. The `desktop/*` package exports support integrations, while `npm start` launches the Linux runtime.
+
+## Agent-driven state and recovery
+
+`npm run onboard -- probe` reports local support. The agent uses a private per-device state directory to record selection and authorization, create configuration, start/stop its owned server and verify connectivity. It follows structured next actions instead of interpreting raw logs. See the [command procedure](../skills/styx-onboarding/references/procedure.md).
+
+For local Codex, `connect-codex --state-dir PATH --device SLUG --client-access` records the user’s client-access authorization and registers a named stdio connection; the bridge reads credentials privately. Existing unrelated client entries are preserved. ChatGPT connection remains a separate account-side handoff.
+
+A client task remains a separate gate: the agent asks the intended client to execute a generated scratch command through `target_exec`, read its file result back and check the artifact. This is reported client execution plus artifact verification, not cryptographic proof of client origin. Remote devices can be recorded as pending, but the current runtime does not aggregate or automatically enroll them. Continue the local procedure on each supported device independently.
 
 ## 1. Check prerequisites
 
@@ -11,11 +21,18 @@ Run these as the ordinary user who will run Styx:
 ```sh
 node --version                 # 22 or newer
 npm --version
+```
+
+Install missing prerequisites through your normal operator-approved process. Host-only setup requires no Docker.
+
+**Optional: only if containers were selected**, check the authorized Docker daemon and obtain the reviewed image before setup:
+
+```sh
 docker info
 docker pull node:22-bookworm-slim
 ```
 
-Install missing prerequisites through your normal operator-approved process. The trusted Styx process needs Docker access; disposable environments do not receive the Docker socket. Setup records the downloaded official image's immutable digest. It does not silently install software or enable Docker access.
+The trusted Styx process needs Docker access for containers; disposable environments do not receive the Docker socket. Setup records the downloaded official image's immutable digest. It does not silently install software or enable Docker access.
 
 ```sh
 git clone https://github.com/sidnvy/Styx.git
@@ -34,16 +51,16 @@ For guided prompts:
 npm run setup
 ```
 
-Choose Docker unless you deliberately need unsandboxed commands on the machine running Styx. Supply **two new, separate absolute directories**: one for Project data, one for private configuration. Their parent directories must already exist. Do not put the private directory inside the Project or checkout. Setup refuses to overwrite an existing installation.
+Host is the default: it enables unsandboxed commands using the local account’s privileges and requires explicit authorization. A Project directory is a working location, not a shell sandbox. Add Docker only when the user selects containers; container-only mode is also available. Supply **two new, separate absolute directories**: one for Project data, one for private configuration. Their parent directories must already exist. Do not put the private directory inside the Project or checkout. Setup refuses to overwrite an existing installation.
 
 For a reproducible noninteractive setup:
 
 ```sh
 mkdir -p "$HOME/chat-codex-data"
-npm run setup -- "$HOME/chat-codex-data/project" "$HOME/chat-codex-data/private" --backend docker
+npm run setup -- "$HOME/chat-codex-data/project" "$HOME/chat-codex-data/private" --backend host
 ```
 
-The resulting private directory contains `config.json`, `token` and `tunnel-authorization`. Directories use mode 0700 and files 0600. Keep credentials out of source control, command transcripts and chat messages. Setup registers Project `default` and Environment `dev`; it does not start a container.
+The resulting private directory contains `config.json`, `token` and `tunnel-authorization`. Directories use mode 0700 and files 0600. Keep credentials out of source control, command transcripts and chat messages. Setup registers Project `default`. Host mode registers Host `local`; Docker modes additionally register Environment `dev` without starting a container.
 
 `--backend host` requires no Docker but grants same-user, unsandboxed Host execution. `--backend both` grants both backends. Neither mode enables desktop control. `--port 8792` can select a free alternate port.
 
@@ -63,6 +80,11 @@ Keep this process running. In a second terminal, from the checkout:
 ```sh
 npm run doctor -- --config "$HOME/chat-codex-data/private/config.json"
 npm run verify -- --config "$HOME/chat-codex-data/private/config.json"
+```
+
+For the optional Docker execution check, when Docker was selected and is available:
+
+```sh
 npm run verify -- --config "$HOME/chat-codex-data/private/config.json" --sandbox
 ```
 
@@ -78,7 +100,11 @@ Install or authorize the connection through your client's supported workflow. Lo
 
 Suggested first prompts:
 
-- “List the registered Projects and Environments; do not create anything yet.”
+- “List the registered Hosts, Projects and Environments; do not create anything yet.”
+- “On Host `local`, run `node --version` and show the execution receipt.”
+
+If containers were selected:
+
 - “Create and start Environment `dev`, then run `node --version` in that Environment.”
 - “Write a small hello-world file in Project `default` through Environment `dev`, run it, and show the execution receipt.”
 - “Stop Environment `dev` when finished. Preserve Project data.”

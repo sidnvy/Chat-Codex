@@ -22,8 +22,8 @@ test('official Agent Plugins 1.0.0 manifest and MCP schemas validate OFFLINE',as
  assert.equal(validManifest({...manifest,skills:'./skills/'}),false,'unknown portable field rejected');
  assert.equal(validMcp({...mcp,mcpServers:{bad:{type:'docker',url:'foo'}}}),false);
 });
-test('all three skills have valid frontmatter and no private installation configuration',async()=>{
- for(const name of ['red-green-refactor','host-vs-environment','safe-project-operations']){
+test('all packaged skills have valid frontmatter and no private installation configuration',async()=>{
+ for(const name of ['red-green-refactor','host-vs-environment','safe-project-operations','styx-onboarding']){
   const file=await fs.readFile(path.join(root,'skills',name,'SKILL.md'),'utf8');
   assert.match(file,new RegExp('^---\\nname: '+name+'\\ndescription: [^\\n]+\\n---\\n'));
   assert.ok(file.length>250);

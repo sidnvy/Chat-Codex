@@ -8,7 +8,7 @@ Chat-Codex is an independent, MIT-licensed open-source project. It does not requ
 
 ## Resource architecture
 
-A **Host** is a machine you maintain. Registration controls access only; it does not confer lifecycle ownership. The v0.2 Local Linux Host is opt-in, non-root and **UNSANDBOXED**.
+A **Host** is a machine you maintain. Registration controls access only; it does not confer lifecycle ownership. The Local Linux Host requires explicit authorization, is non-root and **UNSANDBOXED**.
 
 A **Disposable Environment** is created by a Provisioner. The first real Provider is Docker, with an independent create/start/stop/delete lifecycle. A persistent VM or Docker service may still be a Host if Chat-Codex does not own its lifecycle.
 
@@ -43,7 +43,7 @@ Execution receipts preserve stdout, stderr, exit_code, termination, duration_ms.
 
 ## Start here
 
-Use the [step-by-step onboarding guide](docs/ONBOARDING.md) for a first authenticated connection and an isolated Docker execution check. The supported installation is a source checkout with `npm ci`; `package.json` is `private: true`, and this guide does not assume an npm registry release or global installer.
+Start with [Connect your devices to Chat](INSTALL.md): give its prompt to your local Codex agent, choose devices and authorize access. The agent uses deterministic setup and verification tools. Host execution is the default; containers are optional. The [operator guide](docs/ONBOARDING.md) documents the underlying steps. The supported installation is a source checkout with `npm ci`; `package.json` is `private: true`, and this guide does not assume an npm registry release or global installer.
 
 ## Requirements and installation
 
@@ -55,23 +55,21 @@ Use the [step-by-step onboarding guide](docs/ONBOARDING.md) for a first authenti
 git clone https://github.com/sidnvy/Styx.git
 cd Styx
 npm ci --ignore-scripts --no-audit --no-fund
-# Docker only:
-docker pull node:22-bookworm-slim
-
 # Use NEW separate directories outside the source checkout.
 mkdir -p "$HOME/chat-codex-data"
-npm run setup -- "$HOME/chat-codex-data/project" "$HOME/chat-codex-data/private" --backend docker
+npm run setup -- "$HOME/chat-codex-data/project" "$HOME/chat-codex-data/private" --backend host
 export CHAT_CODEX_CONFIG="$HOME/chat-codex-data/private/config.json"
 npm start
 
 # In a second terminal, from the same checkout:
 npm run verify -- --config "$HOME/chat-codex-data/private/config.json"
-npm run verify -- --config "$HOME/chat-codex-data/private/config.json" --sandbox
 ~~~
+
+The Host-only sequence above needs no Docker. If containers are selected, install and authorize Docker access, pull `node:22-bookworm-slim` before setup, and choose `--backend both` (or container-only `--backend docker`). After starting the server, optionally run `npm run verify -- --config "$HOME/chat-codex-data/private/config.json" --sandbox` for a separate verifier-owned Docker execution check.
 
 Run `npm run setup` without arguments for guided prompts. The positional form above is suitable for scripts. `--port` selects another loopback port.
 
-`--backend docker` is the secure default and registers no Host. For an explicitly trusted, unsandboxed Host choose `--backend host`; `--backend both` registers Host and Docker Environment together.
+`--backend host` is the default and requires authorization for unsandboxed access. `--backend both` adds an optional Docker Environment; `--backend docker` selects container-only execution and registers no Host.
 
 The setup tool creates a private v2 config and Bearer token in a 0700 directory, 0600 files. A generated `owner_id` identifies Docker resources; project registration remains outside the Environment lifecycle. Credentials must remain outside both your repository and ChatGPT messages. Administrators edit registration in private config while the service is stopped. There is no model-facing Host enrollment tool.
 
@@ -94,7 +92,7 @@ desktop is unlocked. See [v0.4 product plan](docs/V0.4-PRODUCT-PLAN.md).
 
 ## Provision an Environment
 
-Using an authenticated MCP client:
+If you selected Docker and registered Environment `dev`, use an authenticated MCP client:
 
 ~~~text
 environment_status({environment:"dev"})          # absent
@@ -148,7 +146,7 @@ Root [`plugin.json`](plugin.json), [`mcp.json`](mcp.json) and [`skills/`](skills
 
 **Installation template only:** the `https://chat-codex.example.invalid/mcp` URL is a placeholder, not an operational service. Replace it with your own secure MCP endpoint and configure `CHAT_CODEX_BEARER` using the installing client's secret configuration; do not commit tunnel IDs or tokens. Server-side tokens are not bundled.
 
-Skills: Red-Green-Refactor, Host vs Disposable Environment, Safe Project Operations. Skills are guidance; the Core enforces resource admission.
+Skills: Styx Onboarding, Red-Green-Refactor, Host vs Disposable Environment, Safe Project Operations. Skills are guidance; the Core enforces resource admission.
 
 ## Tests
 

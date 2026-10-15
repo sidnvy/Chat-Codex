@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 
 /** Create new, separate first-run data only. Never overwrite an installation. */
-export async function createSetup({project,privateDir,backend='docker',port=8791,
+export async function createSetup({project,privateDir,backend='host',port=8791,ownerId=crypto.randomUUID(),
  platform=process.platform,uid=process.getuid?.(),gid=process.getgid?.(),command=execFileSync}={}){
  if(platform!=='linux'||!Number.isInteger(uid)||uid===0||!Number.isInteger(gid))throw Error('Setup requires a non-root Linux user.');
  if(!['docker','host','both'].includes(backend))throw Error('Choose docker, host or both.');
@@ -28,7 +28,8 @@ export async function createSetup({project,privateDir,backend='docker',port=8791
   if(!digest)throw Error('Pull the reviewed official node:22-bookworm-slim image before setup.');
   image='node:22-bookworm-slim@'+digest.split('@')[1];
  }
- const config={version:2,owner_id:crypto.randomUUID(),port,
+ if(!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(ownerId))throw Error('Invalid installation identity');
+ const config={version:2,owner_id:ownerId,port,
   projects:[{id:'default',path:project}],
   hosts:backend==='docker'?[]:[{id:'local',project:'default',enabled:true,connection:'local',unsandboxed:true}],
   environments:backend==='host'?[]:[{id:'dev',project:'default',provider:'docker'}],

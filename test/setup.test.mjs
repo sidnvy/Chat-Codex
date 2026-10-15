@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {createSetup} from '../src/setup.mjs';
 async function fixture(fn){const root=await fs.mkdtemp(path.join(os.tmpdir(),'styx-setup-'));try{await fn(root);}finally{await fs.rm(root,{recursive:true,force:true});}}
-const opts=root=>({project:path.join(root,'project'),privateDir:path.join(root,'private'),platform:'linux',uid:1000,gid:1000});
+const opts=root=>({project:path.join(root,'project'),privateDir:path.join(root,'private'),backend:'docker',platform:'linux',uid:1000,gid:1000});
 test('Docker setup pins inspected digest and keeps credentials outside project',()=>fixture(async root=>{
  const r=await createSetup({...opts(root),command:()=>JSON.stringify(['node@sha256:'+'a'.repeat(64)])});
  const config=JSON.parse(await fs.readFile(r.configFile));assert.deepEqual(config.hosts,[]);assert.match(config.docker.image,/@sha256:a{64}$/);assert.deepEqual(await fs.readdir(r.project),[]);
