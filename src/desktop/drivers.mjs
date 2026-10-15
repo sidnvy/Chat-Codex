@@ -1,6 +1,8 @@
 import {DesktopError,verifyDesktopDriver} from './contract.mjs';
 import {HyprlandDesktop} from './hyprland.mjs';
 import {PeekabooDesktop} from './peekaboo.mjs';
+import {macOSSessionProbe} from './macos-session.mjs';
+import {localDesktopExec} from './exec.mjs';
 import {WinappDesktop} from './winapp.mjs';
 
 const NAME=/^[a-z][a-z0-9-]{0,62}$/;
@@ -24,7 +26,7 @@ export class DesktopDriverCatalog {
 export function createBuiltInDesktopCatalog(platform=process.platform){
  const catalog=new DesktopDriverCatalog();
  if(platform==='linux')catalog.register('hyprland',()=>new HyprlandDesktop());
- if(platform==='darwin')catalog.register('peekaboo',()=>new PeekabooDesktop());
+ if(platform==='darwin')catalog.register('peekaboo',()=>new PeekabooDesktop(localDesktopExec,macOSSessionProbe));
  if(platform==='win32')catalog.register('winapp',()=>new WinappDesktop());
  return catalog;
 }

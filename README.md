@@ -43,7 +43,7 @@ Execution receipts preserve stdout, stderr, exit_code, termination, duration_ms.
 
 ## Start here
 
-Start with [Connect your devices to Chat](INSTALL.md): give its prompt to your local Codex agent, choose devices and authorize access. The agent uses deterministic setup and verification tools. Host execution is the default; containers are optional. The [operator guide](docs/ONBOARDING.md) documents the underlying steps. The supported installation is a source checkout with `npm ci`; `package.json` is `private: true`, and this guide does not assume an npm registry release or global installer.
+Start with [Connect your devices to Chat](INSTALL.md): give its prompt to your local Codex agent, choose devices and authorize access. The agent uses deterministic setup and verification tools. Host execution and Desktop preparation form the default onboarding path; containers are optional. Desktop access requires its own authorization and verified platform prerequisites. The [operator guide](docs/ONBOARDING.md) documents the underlying steps. The supported installation is a source checkout with `npm ci`; `package.json` is `private: true`, and this guide does not assume an npm registry release or global installer.
 
 ## Requirements and installation
 
