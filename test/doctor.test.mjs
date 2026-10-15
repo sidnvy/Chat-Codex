@@ -57,7 +57,7 @@ test('doctor before setup provides action-required guidance without modifying fi
   command:async()=>{throw Error('docker_unavailable')},http:async()=>{throw Error('should_not_http')}});
  assert.equal(report.overall,'action_required');
  assert.equal(status(report,'configuration'),'action_required');
- assert.equal(status(report,'docker'),'action_required');
+ assert.equal(status(report,'docker'),'not_checked');
  assert.equal(status(report,'local_server'),'not_checked');
 });
 test('doctor fails closed on schema errors and unsafe credentials',async t=>{
@@ -76,7 +76,7 @@ test('doctor fails closed on schema errors and unsafe credentials',async t=>{
 test('doctor does not silently require Docker for an explicitly Host-only config',async t=>{
  const f=await fixture(t,{withDocker:false});
  const report=await runDoctor({...f.opts,command:async()=>{throw Error('Docker missing')}});
- assert.equal(status(report,'docker'),'warning');
+ assert.equal(status(report,'docker'),'not_checked');
  assert.equal(status(report,'docker_image'),'not_checked');
  assert.equal(report.overall,'ready');
 });
@@ -176,4 +176,9 @@ test('standalone Doctor blocks declared extensions that default startup cannot r
  assert.equal(result.overall,'blocked');
  assert.match(result.checks.find(x=>x.id==='configuration').next,/distribution-specific/);
  assert.equal(JSON.stringify(result).includes('injected-only'),false);
+});
+test('macOS Host doctor does not probe optional Docker',async t=>{
+ const f=await fixture(t,{withDocker:false});let commands=0;
+ const report=await runDoctor({...f.opts,platform:'darwin',command:async()=>{commands++;throw Error('not installed');}});
+ assert.equal(status(report,'platform'),'ready');assert.equal(status(report,'docker'),'not_checked');assert.equal(report.overall,'ready');assert.equal(commands,0);
 });

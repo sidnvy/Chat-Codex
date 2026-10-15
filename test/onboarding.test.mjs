@@ -5,25 +5,26 @@ import os from 'node:os';
 import path from 'node:path';
 import {createServer} from 'node:net';
 import {onboard} from '../src/onboarding.mjs';
-const supported=process.platform==='linux'&&process.getuid?.()>0;
+import {processIdentity,matchesProcess,localPlatform} from '../src/onboarding-process.mjs';
+const supported=['linux','darwin'].includes(process.platform)&&process.getuid?.()>0;
 async function fixture(fn){const root=await fs.mkdtemp(path.join(os.tmpdir(),'styx-onboard-'));const stateDir=path.join(root,'state');try{await onboard('init',{stateDir,client:'codex'});await fn(stateDir);}finally{await fs.rm(root,{recursive:true,force:true});}}
-const add=stateDir=>onboard('add-device',{stateDir,id:'laptop',label:'My laptop',location:'local',platform:'linux'});
+const add=stateDir=>onboard('add-device',{stateDir,id:'laptop',label:'My laptop',location:'local',platform:localPlatform(process.platform)});
 test('state resumes selected devices without implicit authorization',()=>fixture(async stateDir=>{
  let result=await add(stateDir);assert.equal(result.devices[0].next_action.kind,'authorization');assert.equal(result.devices[0].capabilities.containers,false);
  result=await onboard('init',{stateDir,client:'codex'});assert.equal(result.devices.length,1);
  await assert.rejects(onboard('init',{stateDir,client:'chatgpt'}),/client_selection_conflict/);
  assert.equal((await add(stateDir)).devices.length,1);
- await assert.rejects(onboard('add-device',{stateDir,id:'laptop',label:'Changed',location:'local',platform:'linux'}),/device_selection_conflict/);
+ await assert.rejects(onboard('add-device',{stateDir,id:'laptop',label:'Changed',location:'local',platform:localPlatform(process.platform)}),/device_selection_conflict/);
  if(supported)await assert.rejects(onboard('install',{stateDir,device:'laptop'}),/authorization_required/);
  assert.deepEqual(await fs.readdir(stateDir),['onboarding.json']);
 }));
 test('remote and unsupported devices are honest pending handoffs',()=>fixture(async stateDir=>{
- await onboard('add-device',{stateDir,id:'remote',label:'Other computer',location:'remote',platform:'linux'});
+ await onboard('add-device',{stateDir,id:'remote',label:'Other computer',location:'remote',platform:localPlatform(process.platform)});
  const result=await onboard('add-device',{stateDir,id:'windows',label:'This computer',location:'local',platform:'windows',desktop:true});
  assert.equal(result.devices[0].next_action.code,'continue_on_device');assert.equal(result.devices[1].next_action.code,'native_installer_unavailable');assert.equal(result.overall,'in_progress');
 }));
 test('optional containers require their own explicit authorization',{skip:!supported},()=>fixture(async stateDir=>{
- await onboard('add-device',{stateDir,id:'laptop',label:'My laptop',location:'local',platform:'linux',containers:true});
+ await onboard('add-device',{stateDir,id:'laptop',label:'My laptop',location:'local',platform:localPlatform(process.platform),containers:true});
  await assert.rejects(onboard('authorize',{stateDir,device:'laptop',hostAccess:true}),/container_authorization_required/);
  await assert.rejects(onboard('install',{stateDir,device:'laptop'}),/authorization_required/);
  assert.equal((await onboard('authorize',{stateDir,device:'laptop',hostAccess:true,containers:true})).devices[0].next_action.code,'install');
@@ -45,7 +46,7 @@ test('real Host process starts verifies stops and preserves first-task boundary'
 }));
 test('explicit lock recovery preserves active operations and clears dead owner',{skip:!supported},()=>fixture(async stateDir=>{
  const lock=path.join(stateDir,'.onboarding-lock');await fs.mkdir(lock,{mode:0o700});
- const stat=await fs.readFile('/proc/self/stat','utf8');const started=stat.slice(stat.lastIndexOf(')')+2).split(' ')[19];
+ const {started}=await processIdentity(process.pid);
  const file=path.join(lock,'owner.json');await fs.writeFile(file,JSON.stringify({pid:process.pid,started}),{mode:0o600});
  await assert.rejects(onboard('recover-lock',{stateDir}),/operation_in_progress/);
  await assert.rejects(onboard('status',{stateDir}),/operation_in_progress/);
@@ -88,3 +89,19 @@ test('invalid port cannot corrupt resumable installation state',{skip:!supported
  await assert.rejects(onboard('install',{stateDir,device:'laptop',port:NaN}),/invalid_port/);
  const state=await onboard('status',{stateDir});assert.equal(state.devices[0].next_action.code,'install');
 }));
+test('Darwin process identity requires stable start time and exact executable/command',async()=>{
+ const expected=['/private/node','/app/onboarding-server.mjs','/private/config.json'];
+ const values={lstart:'Thu Oct 15 10:20:30 2026',comm:expected[0],command:expected.join(' ')};
+ const command=(exe,args)=>{assert.equal(exe,'/bin/ps');return values[args.at(-1).slice(0,-1)]+'\n';};
+ const identity=await processIdentity(123,{platform:'darwin',command,alive:()=>true});assert.equal(matchesProcess(identity,expected),true);
+ assert.equal(matchesProcess({...identity,executable:'/different/node'},expected),false);
+ assert.equal(matchesProcess({...identity,commandLine:values.command+' extra'},expected),false);
+ let starts=0;await assert.rejects(processIdentity(123,{platform:'darwin',command:(exe,args)=>args.at(-1)==='lstart='?String(++starts):'x',alive:()=>true}),/process_identity_unconfirmed/);
+ await assert.rejects(processIdentity(123,{platform:'darwin',command:()=>{throw Error('private raw ps error')},alive:()=>true}),/process_identity_unconfirmed/);
+ assert.equal(await processIdentity(123,{platform:'darwin',command:()=>{throw Error()},alive:()=>false}),null);
+});
+test('Linux exact argv rejects extra arguments and process inspection failures fail closed',async()=>{
+ assert.equal(matchesProcess({args:['/node','/server','/config','']},['/node','/server','/config']),true);
+ assert.equal(matchesProcess({args:['/node','/server','/config','extra','']},['/node','/server','/config']),false);
+ await assert.rejects(processIdentity(123,{platform:'linux',readFile:async()=>{throw Error()},alive:()=>true}),/process_identity_unconfirmed/);
+});

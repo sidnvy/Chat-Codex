@@ -30,16 +30,17 @@ export async function runDoctor({
     if(!STATUS.includes(status))throw new Error('Invalid doctor status');
     checks.push(check(id,status,message,next));
   };
-  add('platform',platform==='linux'?'ready':'blocked',
-    platform==='linux'?'Linux runtime supported.':'Current Chat-Codex Host and setup runtimes require Linux.',
-    platform==='linux'?undefined:'Use a supported Linux host; non-Linux Desktop adapters are experimental.');
+  const supported=['linux','darwin'].includes(platform);
+  add('platform',supported?'ready':'blocked',
+    supported?(platform==='darwin'?'macOS Host runtime supported; container setup requires Linux.':'Linux runtime supported.'):'Host and setup runtimes require Linux or macOS.',
+    supported?undefined:'Use a supported Linux or macOS host.');
   const major=Number.parseInt(String(nodeVersion).split('.')[0],10);
   add('node',Number.isInteger(major)&&major>=22?'ready':'blocked',
     major>=22?'Node.js requirement satisfied.':'Node.js 22 or newer is required.',
     major>=22?undefined:'Install Node.js 22+ and rerun doctor.');
   add('privileges',uid!==0&&Number.isInteger(uid)?'ready':'blocked',
     uid===0?'Do not run Chat-Codex as root.':Number.isInteger(uid)?'Non-root user confirmed.':'Unable to verify current user privileges.',
-    uid!==0&&Number.isInteger(uid)?undefined:'Run as an ordinary non-root Linux user.');
+    uid!==0&&Number.isInteger(uid)?undefined:'Run as an ordinary non-root Linux or macOS user.');
 
   let config=null,privateDir=null;
   if(!configFile){
@@ -119,7 +120,10 @@ export async function runDoctor({
   }else add('desktop','not_checked','Desktop capability status unavailable until configuration is valid.');
 
   const dockerRequired=Boolean(config?.environments?.length);
-  try{
+  if(!dockerRequired){
+    add('docker','not_checked','Docker is optional and not required by this configuration.');
+    add('docker_image','not_checked','No configured Docker Environment image to check.');
+  }else try{
     await command('docker',['info','--format','{{.ServerVersion}}'],{timeout,maxBuffer:8192});
     add('docker','ready','Docker daemon is reachable.');
     if(config?.docker?.image&&dockerRequired){

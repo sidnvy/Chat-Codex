@@ -13,7 +13,7 @@ async function main(){
   if(!process.stdin.isTTY)throw Error('Guided setup requires a terminal. Supply two absolute new directory paths, or use --help.');
   const rl=createInterface({input:process.stdin,output:process.stdout});
   try{
-   console.log('Styx first-run setup (Linux). No existing files are overwritten.');
+   console.log('Styx first-run setup (Linux/macOS Host; Linux containers). No existing files are overwritten.');
    console.log('Docker isolates development commands. Host access runs with your full user permissions.');
    backend=(await rl.question('Backend [host / both / docker] (host): ')).trim()||'host';
    if(!['docker','host','both'].includes(backend))throw Error('Choose docker, host or both.');

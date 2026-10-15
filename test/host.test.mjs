@@ -36,3 +36,18 @@ test('host setup is Docker-independent; unsandboxed host execution, cancellation
   assert.equal(recovery.poll(t,lingering.id).status,'lost');
  }finally{await fs.rm(root,{recursive:true,force:true});}
 });
+test('POSIX Host worker bounds file access, execution time and output',async()=>{
+ const {HostRunner}=await import('../src/host-runner.mjs');
+ const {validateHost}=await import('../src/backends.mjs');
+ validateHost({platform:'darwin',uid:501});assert.throws(()=>validateHost({platform:'darwin',uid:0}));assert.throws(()=>validateHost({platform:'win32',uid:501}));
+ const root=await fs.mkdtemp(path.join(os.tmpdir(),'styx-posix-host-'));
+ try{
+  const project=path.join(root,'project');await fs.mkdir(project);const runner=new HostRunner({project,audit:path.join(root,'audit.jsonl')});
+  const content='macOS Linux 中文 🌊\n';await runner.run({op:'write',path:'hello.txt',content});assert.equal((await runner.run({op:'read',path:'hello.txt'})).result.content,content);
+  await fs.writeFile(path.join(root,'outside'),'private');await fs.symlink(path.join(root,'outside'),path.join(project,'escape'));
+  await assert.rejects(runner.run({op:'read',path:'escape'}),/Path leaves project/);
+  const timed=await runner.run({op:'exec',command:'sleep 30',timeout_ms:150});assert.equal(timed.termination,'timeout');assert.ok(timed.duration_ms<5000);
+  const huge=await runner.run({op:'exec',command:"node -e 'process.stdout.write(\"x\".repeat(100000))'",timeout_ms:5000});assert.equal(huge.termination,'output_limit');assert.ok(huge.stdout.length<=65536);
+  assert.equal((await runner.run({op:'exec',command:'printf recovered',timeout_ms:5000})).stdout,'recovered');
+ }finally{await fs.rm(root,{recursive:true,force:true});}
+});

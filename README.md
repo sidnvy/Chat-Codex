@@ -8,7 +8,7 @@ Chat-Codex is an independent, MIT-licensed open-source project. It does not requ
 
 ## Resource architecture
 
-A **Host** is a machine you maintain. Registration controls access only; it does not confer lifecycle ownership. The Local Linux Host requires explicit authorization, is non-root and **UNSANDBOXED**.
+A **Host** is a machine you maintain. Registration controls access only; it does not confer lifecycle ownership. The Local Linux/macOS Host requires explicit authorization, is non-root and **UNSANDBOXED**.
 
 A **Disposable Environment** is created by a Provisioner. The first real Provider is Docker, with an independent create/start/stop/delete lifecycle. A persistent VM or Docker service may still be a Host if Chat-Codex does not own its lifecycle.
 
@@ -47,8 +47,8 @@ Start with [Connect your devices to Chat](INSTALL.md): give its prompt to your l
 
 ## Requirements and installation
 
-- Linux, Node.js 22+, npm, a non-root user.
-- Docker Engine for Docker Environments, with a reviewed official pinned Node image and access granted to the trusted Chat-Codex control process. Host-only mode needs no Docker.
+- Linux or macOS for Host-only execution, Node.js 22+, npm, a non-root user.
+- Linux Docker Engine for optional Docker Environments (macOS Docker Desktop is not yet verified), with a reviewed official pinned Node image and access granted to the trusted Chat-Codex control process. Host-only mode needs no Docker.
 - Your own ChatGPT account/workspace/plugin authorization and a secure MCP endpoint or tunnel for ChatGPT integration.
 
 ~~~sh
@@ -65,11 +65,11 @@ npm start
 npm run verify -- --config "$HOME/chat-codex-data/private/config.json"
 ~~~
 
-The Host-only sequence above needs no Docker. If containers are selected, install and authorize Docker access, pull `node:22-bookworm-slim` before setup, and choose `--backend both` (or container-only `--backend docker`). After starting the server, optionally run `npm run verify -- --config "$HOME/chat-codex-data/private/config.json" --sandbox` for a separate verifier-owned Docker execution check.
+The Host-only sequence above needs no Docker. On Linux, if containers are selected, install and authorize Docker access, pull `node:22-bookworm-slim` before setup, and choose `--backend both` (or container-only `--backend docker`). After starting the server, optionally run `npm run verify -- --config "$HOME/chat-codex-data/private/config.json" --sandbox` for a separate verifier-owned Docker execution check.
 
 Run `npm run setup` without arguments for guided prompts. The positional form above is suitable for scripts. `--port` selects another loopback port.
 
-`--backend host` is the default and requires authorization for unsandboxed access. `--backend both` adds an optional Docker Environment; `--backend docker` selects container-only execution and registers no Host.
+`--backend host` is the default and requires authorization for unsandboxed access. On Linux, `--backend both` adds an optional Docker Environment; `--backend docker` selects container-only execution and registers no Host.
 
 The setup tool creates a private v2 config and Bearer token in a 0700 directory, 0600 files. A generated `owner_id` identifies Docker resources; project registration remains outside the Environment lifecycle. Credentials must remain outside both your repository and ChatGPT messages. Administrators edit registration in private config while the service is stopped. There is no model-facing Host enrollment tool.
 
@@ -88,7 +88,7 @@ identifies which prerequisites are missing and what to configure next.
 `ready` means **local preflight only**: it is not an authenticated MCP
 smoke test, verified ChatGPT account installation, or proof that the graphical
 desktop is unlocked. See [v0.4 product plan](docs/V0.4-PRODUCT-PLAN.md).
-`npm run verify -- --config /absolute/private/config.json` separately checks authenticated MCP. Add `--sandbox` to exercise a temporary, verifier-owned Docker environment; it does not execute in your registered Project or Host. Neither check installs the external ChatGPT connection. See [onboarding](docs/ONBOARDING.md) for the complete sequence.
+`npm run verify -- --config /absolute/private/config.json` separately checks authenticated MCP. On Linux, add `--sandbox` to exercise a temporary, verifier-owned Docker environment; it does not execute in your registered Project or Host. Neither check installs the external ChatGPT connection. See [onboarding](docs/ONBOARDING.md) for the complete sequence.
 
 ## Provision an Environment
 
@@ -136,7 +136,7 @@ Host Desktop is independent of Coder/SSH/WinRM command connectivity. The four AP
 
 Observe supports bounded window metadata and ephemeral exact-window screenshots (2 MiB max) with target-bound, one-use snapshots expiring in 30 seconds. Act reports `verified:false`; independently check the expected UI state after dispatch. An uncertain outcome must not be retried automatically.
 
-Canonical Hyprland, Peekaboo and WinApp adapters have native scratch-window acceptance evidence in controlled configurations. That evidence does not install dependencies, admit another session or prove your installation. The full Host Runner and setup remain Linux-only. Cross-OS worker exports are building blocks for trusted integrations, not a cross-platform server installer. See the [platform prerequisites](docs/ONBOARDING.md#desktop-prerequisites).
+Canonical Hyprland, Peekaboo and WinApp adapters have native scratch-window acceptance evidence in controlled configurations. That evidence does not install dependencies, admit another session or prove your installation. Host Runner and setup support Linux/macOS command execution. macOS Host setup does not install or enable Peekaboo; Desktop worker exports remain building blocks for separately authorized integrations. Windows native Host installation is not supported. See the [platform prerequisites](docs/ONBOARDING.md#desktop-prerequisites).
 
 See [Desktop Capability ADR](docs/DESKTOP-CAPABILITY.md) and [generic Windows preflight](docs/WINDOWS-ONBOARDING.md).
 
@@ -163,7 +163,7 @@ See [VALIDATION.md](VALIDATION.md) for verified checks and unverified installati
 
 ## Limitations
 
-- Implemented backends: Local Linux Host and Docker Environment only. PVE, Firecracker and other sandbox vendors are **contract-only** future backends, not fake tools.
+- Implemented backends: Local Linux/macOS Host and Linux Docker Environment only. PVE, Firecracker and other sandbox vendors are **contract-only** future backends, not fake tools.
 - No arbitrary Host enrollment, no automatic dependency installation or Environment network exposure.
 - Local persisted task receipts are not a distributed task queue; a gateway restart with in-flight tasks yields `lost`. Unconfirmed cancellation yields `unknown`, never success.
 - The minimal single-file `target_apply_patch` accepts unified diff context for existing text files up to 32 KiB.

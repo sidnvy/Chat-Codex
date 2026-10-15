@@ -4,10 +4,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {start} from '../src/server.mjs';
+import {processIdentity} from '../src/onboarding-process.mjs';
 try{
  const config=process.argv[2],dir=path.dirname(config);
- const stat=await fs.readFile('/proc/self/stat','utf8');
- const receipt={pid:process.pid,started:stat.slice(stat.lastIndexOf(')')+2).split(' ')[19]};
+ const identity=await processIdentity(process.pid);if(!identity)throw Error();
+ const nonce=process.argv[3];if(nonce&&!/^[a-f0-9-]{36}$/.test(nonce))throw Error();
+ const receipt={pid:process.pid,started:identity.started,...(nonce?{nonce}:{})};
  const temp=path.join(dir,'.process-'+crypto.randomUUID());
  await fs.writeFile(temp,JSON.stringify(receipt),{flag:'wx',mode:0o600});await fs.rename(temp,path.join(dir,'server-process.json'));
  const {server}=await start(config);

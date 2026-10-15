@@ -2,9 +2,9 @@
 
 For a guided experience, give your local Codex agent the prompt in [INSTALL.md](../INSTALL.md). It starts with device selection and access authorization; the commands below are the underlying operator interface, not steps a novice must type. The agent procedure is [Styx Onboarding](../skills/styx-onboarding/SKILL.md).
 
-The supported automatic local path is a **non-root Linux user with Node.js 22+**. Styx runs a local authenticated MCP server with explicitly authorized Host execution. Docker supplies optional disposable execution environments. Desktop control is optional and disabled by default.
+The supported automatic local path is a **non-root Linux or macOS user with Node.js 22+**. Styx runs a local authenticated MCP server with explicitly authorized Host execution. Docker supplies optional disposable execution environments on Linux; macOS Docker Desktop is not yet verified. Desktop control is optional and disabled by default.
 
-The package still identifies itself as `chat-codex@0.3.0` and is marked `private: true`. Install from this public repository, not an assumed `npm install -g styx` release. For repeatable deployments, check out a reviewed commit before `npm ci`. `npm pack` produces an artifact for trusted consumers; it does not publish a release. The `desktop/*` package exports support integrations, while `npm start` launches the Linux runtime.
+The package still identifies itself as `chat-codex@0.3.0` and is marked `private: true`. Install from this public repository, not an assumed `npm install -g styx` release. For repeatable deployments, check out a reviewed commit before `npm ci`. `npm pack` produces an artifact for trusted consumers; it does not publish a release. The `desktop/*` package exports support integrations, while `npm start` launches the Linux/macOS Host runtime.
 
 ## Agent-driven state and recovery
 
@@ -25,7 +25,7 @@ npm --version
 
 Install missing prerequisites through your normal operator-approved process. Host-only setup requires no Docker.
 
-**Optional: only if containers were selected**, check the authorized Docker daemon and obtain the reviewed image before setup:
+**Optional on Linux: only if containers were selected**, check the authorized Docker daemon and obtain the reviewed image before setup:
 
 ```sh
 docker info
@@ -51,7 +51,7 @@ For guided prompts:
 npm run setup
 ```
 
-Host is the default: it enables unsandboxed commands using the local account’s privileges and requires explicit authorization. A Project directory is a working location, not a shell sandbox. Add Docker only when the user selects containers; container-only mode is also available. Supply **two new, separate absolute directories**: one for Project data, one for private configuration. Their parent directories must already exist. Do not put the private directory inside the Project or checkout. Setup refuses to overwrite an existing installation.
+Host is the default: it enables unsandboxed commands using the local account’s privileges and requires explicit authorization. A Project directory is a working location, not a shell sandbox. On Linux, add Docker only when the user selects containers; container-only mode is also available. Supply **two new, separate absolute directories**: one for Project data, one for private configuration. Their parent directories must already exist. Do not put the private directory inside the Project or checkout. Setup refuses to overwrite an existing installation.
 
 For a reproducible noninteractive setup:
 
@@ -62,7 +62,7 @@ npm run setup -- "$HOME/chat-codex-data/project" "$HOME/chat-codex-data/private"
 
 The resulting private directory contains `config.json`, `token` and `tunnel-authorization`. Directories use mode 0700 and files 0600. Keep credentials out of source control, command transcripts and chat messages. Setup registers Project `default`. Host mode registers Host `local`; Docker modes additionally register Environment `dev` without starting a container.
 
-`--backend host` requires no Docker but grants same-user, unsandboxed Host execution. `--backend both` grants both backends. Neither mode enables desktop control. `--port 8792` can select a free alternate port.
+`--backend host` requires no Docker but grants same-user, unsandboxed Host execution. `--backend both` grants both backends on Linux. Neither mode enables desktop control. `--port 8792` can select a free alternate port.
 
 ## 3. Start and verify
 
@@ -82,7 +82,7 @@ npm run doctor -- --config "$HOME/chat-codex-data/private/config.json"
 npm run verify -- --config "$HOME/chat-codex-data/private/config.json"
 ```
 
-For the optional Docker execution check, when Docker was selected and is available:
+On Linux, for the optional Docker execution check when Docker was selected and is available:
 
 ```sh
 npm run verify -- --config "$HOME/chat-codex-data/private/config.json" --sandbox
@@ -113,7 +113,7 @@ Explicit target selection matters. Docker environments never fall back to Host e
 
 ## Desktop prerequisites
 
-Desktop is a separate opt-in capability, not part of the Docker first-run check. Command connectivity does not prove that a graphical session is usable. The full server's built-in Host enrollment remains Linux-only; macOS and Windows workers require an integrator to supply a trusted transport, Core admission and snapshot handling. They are not installed or enrolled by setup.
+Desktop is a separate opt-in capability, not part of the Docker first-run check. Command connectivity does not prove that a graphical session is usable. Built-in Host command execution supports Linux and macOS; Windows native Host installation is unsupported. macOS Host onboarding does not install Peekaboo or grant capture/accessibility permissions. macOS and Windows desktop workers require an integrator to supply a trusted transport, Core admission and snapshot handling. No desktop worker is installed or enabled by setup.
 
 | Native desktop | Required on the target | Supported integration guide |
 |---|---|---|

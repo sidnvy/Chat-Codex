@@ -54,3 +54,15 @@ jobs:
           node-version: "22"
       - name: Compile embedded native declarations without desktop access
         run: node --test test/windows-native-compile.test.mjs
+  macos-host-onboarding:
+    runs-on: macos-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Native Host and onboarding without Docker
+        run: node --test test/setup.test.mjs test/doctor.test.mjs test/host.test.mjs test/onboarding.test.mjs test/onboarding-client.test.mjs test/onboarding-verifier.test.mjs
