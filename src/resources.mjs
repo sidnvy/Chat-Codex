@@ -19,6 +19,7 @@ export const configSchema=z.object({
  owner_id:z.string().uuid(),projects:z.array(projectSchema).min(1).max(32),
  hosts:z.array(hostSchema).max(16),environments:z.array(environmentSchema).max(32),
  extensions:z.array(idSchema).max(16).optional(),
+ onboarding:z.object({desktop_requested:z.boolean(),port_mode:z.enum(['auto','explicit'])}).strict().optional(),
  docker:dockerSchema.optional()
 }).strict();
 const contains=(a,b)=>a===b||b.startsWith(a+path.sep);

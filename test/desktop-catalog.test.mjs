@@ -8,7 +8,7 @@ test('built-in macOS catalog wires the trusted native console-session probe',asy
  assert.equal(driver.sessionProbe,macOSSessionProbe);assert.equal(driver.run,localDesktopExec);
  // Permission success alone never makes a non-macOS session ready.
  if(process.platform!=='darwin'){
-  driver.run=async()=>JSON.stringify({success:true,data:{permissions:[{name:'Screen Recording',isGranted:true},{name:'Accessibility',isGranted:true}]}});
+  driver.run=async(_binary,args)=>JSON.stringify({success:true,data:args[0]==='bridge'?{candidates:[{socketPath:driver.bridgeSocket,result:{success:{_0:{hostKind:'gui',hostIdentity:{bundleIdentifier:'boo.peekaboo.mac',processIdentifier:1,processStartIdentityDecimal:'123',codeSignatureHash:'test'}}}}}]}:{source:'bridge',permissions:['Screen Recording','Accessibility','Event Synthesizing'].map(name=>({name,isGranted:true}))}});
   const status=await driver.status();assert.equal(status.ready,false);assert.equal(status.state,'session_unverified');
  }
 });

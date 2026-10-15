@@ -89,7 +89,7 @@ test('macOS Peekaboo adapter is permission-gated and receipt-pinned',async()=>{
  const s=await d.observe({mode:'window',window_id:'123'});
  assert.equal(s.receipt.snapshot_id,'pb-snap');
  await d.act(s.receipt,{type:'invoke',element_id:'B1'});
- assert.deepEqual(state.calls.at(-1),['click','--on','B1','--snapshot','pb-snap','--pid','42','--window-id','123','--json']);
+ assert.deepEqual(state.calls.at(-1),['click','--on','B1','--snapshot','pb-snap','--pid','42','--window-id','123','--bridge-socket',d.bridgeSocket,'--json']);
 });
 
 test('Windows UI Automation adapter never equates SSH execution with interactive input readiness',async()=>{

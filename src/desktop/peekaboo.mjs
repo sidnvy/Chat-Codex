@@ -11,7 +11,7 @@ const decimal=value=>typeof value==='string'&&/^[1-9][0-9]*$/.test(value);
 // Pinned Peekaboo DesktopActionOutcome.Projection; never infer dispatch from success alone.
 function acceptedDispatch(outcome){
  const mechanisms=['composite','accessibility_action','accessibility_value','process_targeted_events','window_targeted_events','native_framework'];
- if(!outcome||!['local','bridge'].includes(outcome.route)||!mechanisms.includes(outcome.delivery_mechanism)||
+ if(!outcome||outcome.route!=='bridge'||!mechanisms.includes(outcome.delivery_mechanism)||
   (outcome.dispatched_unit_count!=null&&(!Number.isSafeInteger(outcome.dispatched_unit_count)||outcome.dispatched_unit_count<=0))||
   outcome.dispatch_state!=='dispatched'||outcome.mutation_dispatched!==true||outcome.delivery_mode!=='background'||
   outcome.retry_safe!==false||outcome.refusal_reason!=null)return false;
@@ -24,25 +24,35 @@ function acceptedDispatch(outcome){
 export class PeekabooDesktop {
  #locators=new Map();
  #locatorSession;
- constructor(run=localDesktopExec,sessionProbe=async()=>null,clock=()=>Date.now()){this.run=run;this.sessionProbe=sessionProbe;this.clock=clock;this.driver='peekaboo';}
+ constructor(run=localDesktopExec,sessionProbe=async()=>null,clock=()=>Date.now()){this.run=run;this.sessionProbe=sessionProbe;this.clock=clock;this.driver='peekaboo';this.bridgeSocket=path.join(os.homedir(),'Library','Application Support','Peekaboo','bridge.sock');}
  async call(args,{envelope=false}={}){
-  const result=parseCommandJson(await this.run('peekaboo',[...args,'--json']),this.driver);
+  let output;
+  try{output=await this.run('peekaboo',[...args,'--bridge-socket',this.bridgeSocket,'--json']);}
+  catch(error){if(error.native_code==='CAPTURE_FAILED')throw new DesktopError('capture_unavailable','The selected GUI Bridge refused capture; session, display, or capture service requires diagnosis.');throw error;}
+  const result=parseCommandJson(output,this.driver);
+  if(result.success!==true&&result.error?.code==='CAPTURE_FAILED')throw new DesktopError('capture_unavailable','The selected GUI Bridge refused capture; session, display, or capture service requires diagnosis.');
   if(result.success!==true)throw new DesktopError(result.error?.code??'driver_error',String(result.error?.message??'Peekaboo operation failed').slice(0,350));
   return envelope?result:result.data??{};
  }
  async status(){
   try{
+   const bridge=await this.call(['bridge','status']);
+   const host=bridge.candidates?.find(c=>c.socketPath===this.bridgeSocket)?.result?.success?._0;
+   const identity=host?.hostIdentity;
+   if(host?.hostKind!=='gui'||identity?.bundleIdentifier!=='boo.peekaboo.mac'||!Number.isSafeInteger(identity.processIdentifier)||identity.processIdentifier<=0||!decimal(identity.processStartIdentityDecimal)||typeof identity.codeSignatureHash!=='string'||!identity.codeSignatureHash)
+    return {driver:this.driver,state:'driver_unavailable',ready:false,capabilities:[],next_action:'Start the verified Peekaboo GUI Bridge app for this user; its identity could not be verified.'};
    const data=await this.call(['permissions','status']);
+   if(data.source!=='bridge')return {driver:this.driver,state:'permission_denied',ready:false,capabilities:[],next_action:'Peekaboo must execute through the selected GUI Bridge, not the local CLI runtime.'};
    const permissions=Object.fromEntries((data.permissions??[]).map(p=>[p.name,p.isGranted===true]));
-   if(permissions['Screen Recording']!==true||permissions.Accessibility!==true)
-    return {driver:this.driver,state:'permission_denied',ready:false,permissions,capabilities:[]};
+   if(permissions['Screen Recording']!==true||permissions.Accessibility!==true||permissions['Event Synthesizing']!==true)
+    return {driver:this.driver,state:'permission_denied',ready:false,permissions,permission_source:'bridge',capabilities:[],next_action:'Grant Screen Recording and Accessibility to Peekaboo.app, then recheck its input synthesis permission.'};
    const session=await this.sessionProbe();
    const verified=session?.ready===true&&typeof session.session_id==='string'&&session.session_id.length>0&&session.session_id.length<=1024;
    const state=verified?'ready':session?.ready===false&&session.state==='locked'?'locked':'session_unverified';
-   return {driver:this.driver,state,ready:state==='ready',permissions,
-    ...(verified?{session_id:createHash('sha256').update(session.session_id).digest('hex')}:{}),
+   return {driver:this.driver,state,ready:state==='ready',permissions,permission_source:'bridge',
+    ...(verified?{session_id:createHash('sha256').update(JSON.stringify([session.session_id,identity.processIdentifier,identity.processStartIdentityDecimal,identity.codeSignatureHash])).digest('hex')}:{}),
     capabilities:state==='ready'?['windows','window_screenshot','accessibility','keyboard','element_click']:[]};
-  }catch(e){return {driver:this.driver,state:e.code==='driver_unavailable'?'driver_unavailable':'session_unverified',ready:false,capabilities:[],error:String(e.message).slice(0,200)};}
+  }catch(e){return {driver:this.driver,state:['driver_unavailable','BRIDGE_UNAVAILABLE'].includes(e.code)?'driver_unavailable':'session_unverified',ready:false,capabilities:[],error:String(e.message).slice(0,200)};}
  }
  async ready(session_id){
   const status=await this.status();
@@ -51,8 +61,8 @@ export class PeekabooDesktop {
   if(session_id&&status.session_id!==session_id)throw new DesktopError('stale_target','Desktop session changed');
   return status.session_id;
  }
- async applications(){
-  const data=await this.call(['app','list','--include-hidden','--include-background']);
+ async applications({visibleOnly=false}={}){
+  const data=await this.call(['app','list',...(visibleOnly?[]:['--include-hidden','--include-background'])]);
   if(!Array.isArray(data.apps)||data.apps.some(a=>!Number.isSafeInteger(a.pid)||a.pid<=0))throw invalid('Invalid application inventory');
   return data;
  }
@@ -67,8 +77,13 @@ export class PeekabooDesktop {
   return {windows,truncated:data.inventory_completeness!=='complete'};
  }
  async inventory(){
+  const visible=await this.applications({visibleOnly:true});
   const data=await this.applications();
-  let truncated=data.apps.length>50||(data.warnings?.length??0)>0;
+  const byPid=new Map(data.apps.map(app=>[app.pid,app]));
+  const prioritized=visible.apps.filter(app=>byPid.get(app.pid)?.process_start_identity_decimal===app.process_start_identity_decimal);
+  const visiblePids=new Set(prioritized.map(app=>app.pid));
+  data.apps=[...prioritized,...data.apps.filter(app=>!visiblePids.has(app.pid))];
+  let truncated=data.apps.length>50||(data.warnings?.length??0)>0||(visible.warnings?.length??0)>0;
   // Query at most four applications concurrently. Keep provider order so
   // completion timing cannot change which bounded inventory is exposed.
   const apps=data.apps.slice(0,50),results=new Array(apps.length);

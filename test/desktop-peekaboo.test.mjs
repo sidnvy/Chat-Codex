@@ -172,7 +172,7 @@ test('Peekaboo explicitly accepts native unverified typing without retry or targ
  const {state,driver}=peekabooFixture();const captured=await observe(driver);
  const result=await driver.act(captured.receipt,{type:'type',text:'literal'});
  assert.deepEqual(result,{driver:'peekaboo',outcome:'dispatched_unverified',verified:false});
- assert.deepEqual(inputCalls(state),[['type','--text','literal','--accept-dispatched','--snapshot','pb-snap','--pid','42','--window-id','123','--json']]);
+ assert.deepEqual(inputCalls(state),[['type','--text','literal','--accept-dispatched','--snapshot','pb-snap','--pid','42','--window-id','123','--bridge-socket',driver.bridgeSocket,'--json']]);
 });
 test('Peekaboo success alone cannot promote refused, partial, indeterminate or contradictory outcomes',async()=>{
  for(const patch of [null,{}, {route:undefined},{delivery_mechanism:undefined},{delivery_mechanism:'global_events'},{dispatched_unit_count:0},{state:'refused'},{state:'partial'},{state:'indeterminate'},{state:'suspected_noop'},{state:'confirmed_no_change'},{dispatch_state:'may_have_dispatched'},{mutation_dispatched:false},{retry_safe:true},{delivery_mode:'foreground'},{refusal_reason:'target_unavailable'},{requires_fresh_observation:false},{evidence:'verified_change'}]){
@@ -202,5 +202,26 @@ test('Peekaboo failed or malformed command envelopes stay unknown even with acce
   const captured=await observe(driver);
   assert.equal((await driver.act(captured.receipt,{type:'type',text:'once'})).outcome,'outcome_unknown');
   assert.equal(inputCalls(state).length,1);
+ }
+});
+
+test('Peekaboo refuses local permission evidence and missing GUI identity without fallback',async()=>{
+ for(const change of [(_args,data)=>{delete data.candidates[0].result.success._0.hostIdentity;},(_args,data)=>{data.candidates[0].result.success._0.hostKind='daemon';}]){
+  const {driver,state}=peekabooFixture();state.mutate=(args,data)=>{if(args[0]==='bridge')change(args,data);};
+  assert.equal((await driver.status()).ready,false);assert.equal(state.calls.some(args=>args.includes('--no-remote')),false);
+ }
+ const {driver,state}=peekabooFixture();state.mutate=(args,data)=>{if(args[0]==='permissions')data.source='local';};assert.equal((await driver.status()).state,'permission_denied');
+});
+test('Peekaboo GUI generation change invalidates captured authority and local outcomes stay unknown',async()=>{
+ const {driver,state}=peekabooFixture();const seen=await driver.observe({mode:'window',window_id:'123'});
+ state.mutate=(args,data)=>{if(args[0]==='bridge')data.candidates[0].result.success._0.hostIdentity.processStartIdentityDecimal='124';};
+ await assert.rejects(driver.act(seen.receipt,{type:'type',text:'x'}),e=>e.code==='stale_target');assert.equal(state.calls.some(a=>a[0]==='type'),false);
+ state.mutate=null;state.outcome.route='local';assert.equal((await driver.act(seen.receipt,{type:'type',text:'x'})).outcome,'outcome_unknown');
+});
+
+test('Peekaboo structured capture refusals remain distinct from permissions and session state',async()=>{
+ for(const nonzero of [true,false]){
+  const {driver,run}=peekabooFixture();driver.run=async(b,a)=>{if(a[0]==='see'){if(nonzero){const e=new Error('private');e.native_code='CAPTURE_FAILED';throw e;}return JSON.stringify({success:false,error:{code:'CAPTURE_FAILED',message:'private'}});}return run(b,a);};
+  await assert.rejects(driver.observe({mode:'window',window_id:'123'}),e=>e.code==='capture_unavailable'&&!e.message.includes('private'));
  }
 });

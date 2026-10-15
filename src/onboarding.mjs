@@ -11,23 +11,25 @@ import {inspectDesktopPrerequisites} from './desktop/preflight.mjs';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StreamableHTTPClientTransport} from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import {selectLoopbackPort} from './ports.mjs';
+import {configSchema} from './resources.mjs';
 import {createSetup} from './setup.mjs';
 import {configureCodexClient} from './onboarding-client.mjs';
 import {verifyInstallation} from './onboarding-verifier.mjs';
 const root=fileURLToPath(new URL('..',import.meta.url));
 const id=z.string().regex(/^[a-z][a-z0-9-]{0,40}$/);
-const deviceSchema=z.object({id,label:z.string().min(1).max(80),location:z.enum(['local','remote']),platform:z.enum(['linux','macos','windows']),containers:z.boolean(),desktop:z.boolean(),desktop_authorized:z.boolean().default(false),desktop_client:z.enum(['not_checked','reported']).default('not_checked'),desktop_snapshot:z.string().uuid().optional(),desktop_evidence:z.object({task:z.string().min(1).max(240),result:z.string().min(1).max(240),screenshot_delivered:z.literal(true)}).strict().optional(),desktop_enabled:z.boolean().default(false),desktop_status:z.enum(['not_checked','ready','driver_unavailable','permission_denied','locked','no_session','session_unverified','unsupported']).default('not_checked'),desktop_pending:z.object({sha:z.string().regex(/^[a-f0-9]{64}$/),enabled:z.boolean(),selected:z.boolean()}).strict().optional(),host_authorized:z.boolean().default(false),containers_authorized:z.boolean().default(false),client_authorized:z.boolean().default(false),config_sha:z.string().regex(/^[a-f0-9]{64}$/).optional(),installed:z.boolean().default(false),port:z.number().int().min(1024).max(65535).optional(),port_mode:z.enum(['auto','explicit']).optional(),port_pending:z.object({mode:z.enum(['auto','explicit']).default('auto'),sha:z.string().regex(/^[a-f0-9]{64}$/),port:z.number().int().min(1024).max(65535)}).strict().optional(),endpoint_changed:z.boolean().default(false),owner:z.string().uuid().optional(),connection:z.enum(['not_checked','verified','failed']).default('not_checked'),client:z.enum(['not_checked','reported_with_artifact']).default('not_checked'),challenge:z.string().regex(/^[a-f0-9]{32}$/).optional(),process:z.object({pid:z.number().int().positive(),started:z.string(),nonce:z.string().uuid().optional()}).strict().optional()}).strict();
-const stateSchema=z.object({version:z.literal(1),installation:z.string().uuid(),machine:z.string(),client:z.enum(['codex','chatgpt']),devices:z.array(deviceSchema).max(16)}).strict();
+const deviceSchema=z.object({id,label:z.string().min(1).max(80),location:z.enum(['local','remote']),platform:z.enum(['linux','macos','windows']),containers:z.boolean().default(false),desktop:z.boolean().default(false),config_authority:z.boolean().default(false),config_pending:z.object({sha:z.string().regex(/^[a-f0-9]{64}$/)}).strict().optional(),desktop_authorized:z.boolean().default(false),desktop_client:z.enum(['not_checked','reported']).default('not_checked'),desktop_snapshot:z.string().uuid().optional(),desktop_evidence:z.object({task:z.string().min(1).max(240),result:z.string().min(1).max(240),screenshot_delivered:z.literal(true)}).strict().optional(),desktop_enabled:z.boolean().default(false),desktop_status:z.enum(['not_checked','ready','driver_unavailable','permission_denied','locked','no_session','session_unverified','unsupported']).default('not_checked'),desktop_pending:z.object({sha:z.string().regex(/^[a-f0-9]{64}$/),enabled:z.boolean(),selected:z.boolean()}).strict().optional(),host_authorized:z.boolean().default(false),containers_authorized:z.boolean().default(false),client_authorized:z.boolean().default(false),config_sha:z.string().regex(/^[a-f0-9]{64}$/).optional(),installed:z.boolean().default(false),port:z.number().int().min(1024).max(65535).optional(),port_mode:z.enum(['auto','explicit']).optional(),port_pending:z.object({mode:z.enum(['auto','explicit']).default('auto'),sha:z.string().regex(/^[a-f0-9]{64}$/),port:z.number().int().min(1024).max(65535)}).strict().optional(),endpoint_changed:z.boolean().default(false),owner:z.string().uuid().optional(),connection:z.enum(['not_checked','verified','failed']).default('not_checked'),client:z.enum(['not_checked','reported_with_artifact']).default('not_checked'),challenge:z.string().regex(/^[a-f0-9]{32}$/).optional(),process:z.object({pid:z.number().int().positive(),started:z.string(),nonce:z.string().uuid().optional()}).strict().optional()}).strict();
+const stateSchema=z.object({version:z.union([z.literal(1),z.literal(2)]),installation:z.string().uuid(),machine:z.string(),client:z.enum(['codex','chatgpt']),devices:z.array(deviceSchema).max(16)}).strict();
 const fail=code=>{throw Object.assign(Error(code),{code});};
 async function machine(){return crypto.createHash('sha256').update([os.hostname(),process.getuid?.(),await fs.realpath(os.homedir())].join(':')).digest('hex');}
 export function probe(){return {platform:process.platform,node:process.versions.node,supported:['linux','darwin'].includes(process.platform)&&process.getuid?.()>0&&Number(process.versions.node.split('.')[0])>=22,host_default:true,containers_optional:true,desktop_default:true,desktop_setup_supported:['linux','darwin'].includes(process.platform),desktop_dependency_install_automated:false,remote_aggregation_supported:false};}
 async function privateDirectory(p){const st=await fs.lstat(p);if(!st.isDirectory()||(st.mode&0o077)||st.uid!==process.getuid?.())fail('private_directory_required');}
 async function readState(dir){await privateDirectory(dir);const p=path.join(dir,'onboarding.json'),st=await fs.lstat(p);if(!st.isFile()||(st.mode&0o077)||st.uid!==process.getuid?.())fail('private_state_required');return stateSchema.parse(JSON.parse(await fs.readFile(p,'utf8')));}
-async function save(dir,state){const tmp=path.join(dir,'.state-'+crypto.randomUUID());try{await fs.writeFile(tmp,JSON.stringify(state,null,2)+'\n',{mode:0o600,flag:'wx'});await fs.rename(tmp,path.join(dir,'onboarding.json'));}finally{await fs.unlink(tmp).catch(()=>{});}}
+async function save(dir,state){const tmp=path.join(dir,'.state-'+crypto.randomUUID());try{await fs.writeFile(tmp,JSON.stringify({...state,version:2,devices:state.devices.map(d=>{const saved={...d};if(d.installed&&d.config_authority)for(const key of ['port','port_mode','desktop','desktop_enabled','containers'])delete saved[key];return saved;})},null,2)+'\n',{mode:0o600,flag:'wx'});await fs.rename(tmp,path.join(dir,'onboarding.json'));}finally{await fs.unlink(tmp).catch(()=>{});}}
 const desktopDriver=platform=>({linux:'hyprland',macos:'peekaboo',windows:'winapp'})[platform];
 const digest=raw=>crypto.createHash('sha256').update(raw).digest('hex');
 const paths=(dir,d)=>({base:path.join(dir,d.id),project:path.join(dir,d.id,'project'),privateDir:path.join(dir,d.id,'private'),configFile:path.join(dir,d.id,'private','config.json')});
 function next(d){
+ if(d.effective_error)return {kind:'blocked',code:'configuration_changed',message:'Runtime configuration must be reconciled before proceeding.'};
  if(d.location==='remote')return {kind:'user_action',code:'continue_on_device',message:'Open a local agent on this device and run the same onboarding entrypoint. This runtime does not aggregate remote Hosts.'};
  if(!['linux','macos'].includes(d.platform))return {kind:'unsupported',code:'native_installer_unavailable',message:'Native Host installation for this platform is not available. Other devices can continue.'};
  if(!d.host_authorized||d.containers&&!d.containers_authorized)return {kind:'authorization',code:'host_access',message:'Host commands run with the local account permissions; a Project folder is not a shell sandbox. Optional containers are a separate capability.'};
@@ -39,16 +41,40 @@ function next(d){
  if(d.desktop&&d.desktop_client!=='reported')return {kind:'client_handoff',code:'desktop_client_test',message:'From the chosen client, perform an authorized desktop task, observe its result, and deliver a screenshot. Report the task, observed result and snapshot only after that actual client flow succeeds.'};
  return {kind:'complete',code:d.desktop?'host_desktop_ready':'host_ready',message:d.desktop?'Host task artifact checked; Desktop readiness checked and client task/result/screenshot reported (client attestation, not independently verified).':'Host task artifact checked; Desktop explicitly deferred.'};
 }
-export function summary(state){return {version:1,client:state.client,devices:state.devices.map(d=>({id:d.id,label:d.label,location:d.location,platform:d.platform,capabilities:{host:true,containers:d.containers,desktop:d.desktop?(d.desktop_enabled?d.desktop_status:'selected_not_enabled'):'deferred'},desktop_driver:desktopDriver(d.platform),desktop_authorized:d.desktop_authorized,desktop_client:d.desktop_client,container_verification:d.containers?'separate_sandbox_only_until_client_task':'not_requested',installed:d.installed,port:d.port,port_mode:d.port_mode??(d.port?'explicit':undefined),endpoint_changed:d.endpoint_changed,...(d.endpoint_changed?{endpoint_handoff:'The local endpoint changed. Reconfigure any external tunnel or direct HTTP client, then verify it; local config-reading bridges use the updated file.'}:{}),connection:d.connection,client:d.client,next_action:next(d)})),overall:state.devices.length===0?'choose_devices':state.devices.every(d=>next(d).kind==='complete')?'complete':state.devices.some(d=>d.connection==='verified'&&d.client==='reported_with_artifact')?'partially_complete':'in_progress'};}
+export function summary(state){return {version:1,client:state.client,devices:state.devices.map(d=>({id:d.id,label:d.label,location:d.location,platform:d.platform,configuration_state:d.effective_error?'unavailable':d.installed?'verified':'not_installed',capabilities:{host:d.effective_error?null:true,containers:d.effective_error?null:d.containers,desktop:d.effective_error?'unknown':d.desktop?(d.desktop_enabled?d.desktop_status:'selected_not_enabled'):'deferred'},desktop_driver:d.configured_driver??desktopDriver(d.platform),desktop_authorized:d.desktop_authorized,desktop_client:d.desktop_client,container_verification:d.containers?'separate_sandbox_only_until_client_task':'not_requested',installed:d.installed,port:d.port,port_mode:d.port_mode??(d.port?'explicit':undefined),endpoint_changed:d.endpoint_changed,...(d.endpoint_changed?{endpoint_handoff:'The local endpoint changed. Reconfigure any external tunnel or direct HTTP client, then verify it; local config-reading bridges use the updated file.'}:{}),connection:d.connection,client:d.client,next_action:next(d)})),overall:state.devices.length===0?'choose_devices':state.devices.every(d=>next(d).kind==='complete')?'complete':state.devices.some(d=>d.connection==='verified'&&d.client==='reported_with_artifact')?'partially_complete':'in_progress'};}
 async function ownedProcess(d,p){if(!d.process)return false;const current=await proc(d.process.pid);return !!current&&current.started===d.process.started&&matchesProcess(current,[process.execPath,path.join(root,'scripts/onboarding-server.mjs'),p.configFile,...(d.process.nonce?[d.process.nonce]:[])]);}
-async function identity(d,p){await privateDirectory(p.base);await privateDirectory(p.privateDir);const st=await fs.lstat(p.configFile);if(!st.isFile()||(st.mode&0o077)||st.uid!==process.getuid?.())fail('configuration_changed');const raw=await fs.readFile(p.configFile,'utf8');if(d.config_sha&&crypto.createHash('sha256').update(raw).digest('hex')!==d.config_sha)fail('configuration_changed');const c=JSON.parse(raw);if(c.owner_id!==d.owner||c.port!==d.port||c.hosts.length!==1||JSON.stringify(c.hosts)!==JSON.stringify([{id:'local',project:'default',enabled:true,connection:'local',unsandboxed:true,...(d.desktop_enabled?{capabilities:{desktop:{enabled:true,driver:desktopDriver(d.platform)}}}:{})}])||c.environments.length!==(d.containers?1:0)||c.projects.length!==1||c.projects[0].path!==p.project)fail('configuration_changed');return c;}
+function projectConfiguration(d,c){
+ const grant=c.hosts[0].capabilities?.desktop;
+ const values={port:c.port,port_mode:c.onboarding?.port_mode??'explicit',desktop:c.onboarding?.desktop_requested??grant?.enabled===true,desktop_enabled:grant?.enabled===true,containers:c.environments.length>0,configured_driver:grant?.driver};
+ for(const [key,value]of Object.entries(values))Object.defineProperty(d,key,{value,writable:true,configurable:true,enumerable:false});
+ d.config_authority=Boolean(c.onboarding);
+ return c;
+}
+async function identity(d,p){
+ await privateDirectory(p.base);await privateDirectory(p.privateDir);const st=await fs.lstat(p.configFile);
+ if(!st.isFile()||(st.mode&0o077)||st.uid!==process.getuid?.())fail('configuration_changed');
+ const raw=await fs.readFile(p.configFile,'utf8');if(d.config_sha&&digest(raw)!==d.config_sha)fail('configuration_changed');
+ const parsed=configSchema.safeParse(JSON.parse(raw));if(!parsed.success)fail('configuration_changed');const c=parsed.data;
+ const host=c.hosts[0];if(c.owner_id!==d.owner||c.hosts.length!==1||host.id!=='local'||host.project!=='default'||host.connection!=='local'||!host.enabled||!host.unsandboxed||c.projects.length!==1||c.projects[0].id!=='default'||c.projects[0].path!==p.project)fail('configuration_changed');
+ if(!c.onboarding&&!d.config_authority){if((d.port!==undefined&&d.port!==c.port)||Boolean(host.capabilities?.desktop)!==d.desktop_enabled||c.environments.length!==(d.containers?1:0))fail('configuration_changed');return c;}
+ if(!c.onboarding)fail('configuration_changed');return projectConfiguration(d,c);
+}
+async function migrateConfiguration(stateDir,state,d,p){
+ const hadAuthority=d.config_authority;const c=await identity(d,p);if(c.onboarding){projectConfiguration(d,c);if(!hadAuthority)await save(stateDir,state);return;}
+ c.onboarding={desktop_requested:d.desktop,port_mode:d.port_mode??'explicit'};
+ const raw=JSON.stringify(c,null,2)+'\n';d.config_pending={sha:digest(raw)};await save(stateDir,state);
+ const tmp=path.join(p.privateDir,'.config-'+crypto.randomUUID());
+ try{await fs.writeFile(tmp,raw,{mode:0o600,flag:'wx'});await fs.rename(tmp,p.configFile);}finally{await fs.unlink(tmp).catch(()=>{});}
+ d.config_sha=digest(raw);delete d.config_pending;projectConfiguration(d,c);await save(stateDir,state);
+}
+
 function invalidateConnection(d){d.connection='not_checked';d.client='not_checked';d.desktop_status='not_checked';d.desktop_client='not_checked';delete d.challenge;}
 async function possibleExistingService(port){
  // Never disclose the private token to an unknown listener just to classify a conflict.
  try{const response=await fetch('http://127.0.0.1:'+port+'/healthz',{redirect:'error',signal:AbortSignal.timeout(1500)});if(!response.ok){await response.body?.cancel();return false;}const reader=response.body.getReader();let body='';try{for(;;){const {done,value}=await reader.read();if(done)break;body+=Buffer.from(value).toString();if(body.length>4096)return false;}}finally{await reader.cancel();}const data=JSON.parse(body);return data.ok===true&&data.scope==='process only';}catch{return false;}
 }
 async function relocatePort(stateDir,state,d,p,port,mode='auto'){
- const config=await identity(d,p);config.port=port;const raw=JSON.stringify(config,null,2)+'\n';
+ const config=await identity(d,p);config.port=port;config.onboarding.port_mode=mode;const raw=JSON.stringify(config,null,2)+'\n';
  d.port_pending={sha:digest(raw),port,mode};await save(stateDir,state);
  const tmp=path.join(p.privateDir,'.port-'+crypto.randomUUID());
  try{await fs.writeFile(tmp,raw,{mode:0o600,flag:'wx'});await fs.rename(tmp,p.configFile);}finally{await fs.unlink(tmp).catch(()=>{});}
@@ -63,7 +89,7 @@ async function desktopRuntimeStatus(d,p){
   await client.connect(new StreamableHTTPClientTransport(new URL('http://127.0.0.1:'+d.port+'/mcp'),{requestInit:{headers:{Authorization:'Bearer '+token},redirect:'error'}}),{timeout:10000});
   const result=await client.callTool({name:'target_desktop_status',arguments:{target:{kind:'host',id:'local'}}},undefined,{timeout:15000});
   if(result.isError)fail('desktop_status_failed');const status=result.structuredContent??JSON.parse(result.content.find(x=>x.type==='text').text);
-  if(status.driver!==desktopDriver(d.platform))fail('desktop_driver_mismatch');return status;
+  if(status.driver!==(d.configured_driver??desktopDriver(d.platform)))fail('desktop_driver_mismatch');return status;
  }finally{await client.close();}
 }
 export async function onboard(command,{stateDir,device,...options}={}){
@@ -86,8 +112,11 @@ export async function onboard(command,{stateDir,device,...options}={}){
   let state;
   try{state=await readState(stateDir);}catch(e){if(command!=='init'||e.code!=='ENOENT')throw e;state={version:1,installation:crypto.randomUUID(),machine:await machine(),client:options.client,devices:[]};await save(stateDir,state);}
   if(state.machine!==await machine())fail('state_belongs_to_another_machine');
+  for(const item of state.devices.filter(x=>x.config_pending&&command!=='stop')){const raw=await fs.readFile(paths(stateDir,item).configFile,'utf8');const sha=digest(raw);if(sha===item.config_pending.sha)item.config_sha=sha;else if(sha!==item.config_sha)fail('configuration_changed');delete item.config_pending;await save(stateDir,state);}
   for(const item of state.devices.filter(x=>x.port_pending&&command!=='stop')){const raw=await fs.readFile(paths(stateDir,item).configFile,'utf8');const sha=digest(raw);if(sha===item.port_pending.sha){item.config_sha=sha;item.port=item.port_pending.port;item.port_mode=item.port_pending.mode;item.endpoint_changed=true;invalidateConnection(item);}else if(sha!==item.config_sha)fail('configuration_changed');delete item.port_pending;await save(stateDir,state);}
   for(const item of state.devices.filter(x=>x.desktop_pending&&command!=='stop')){const raw=await fs.readFile(paths(stateDir,item).configFile,'utf8');const sha=digest(raw);if(sha===item.desktop_pending.sha){item.config_sha=sha;item.desktop_enabled=item.desktop_pending.enabled;item.desktop=item.desktop_pending.selected;item.desktop_status='not_checked';item.desktop_client='not_checked';item.connection='not_checked';item.client='not_checked';delete item.challenge;}else if(sha!==item.config_sha)fail('configuration_changed');delete item.desktop_pending;await save(stateDir,state);}
+  if(command!=='stop')for(const item of state.devices.filter(x=>x.installed&&x.location==='local')){try{await migrateConfiguration(stateDir,state,item,paths(stateDir,item));}catch(error){if(command!=='status')throw error;Object.defineProperty(item,'effective_error',{value:true,enumerable:false});invalidateConnection(item);}}
+  else for(const item of state.devices.filter(x=>x.installed&&x.location==='local')){try{await identity(item,paths(stateDir,item));}catch{Object.defineProperty(item,'effective_error',{value:true,enumerable:false});}}
   if(command==='init'){if(state.client!==options.client)fail('client_selection_conflict');return summary(state);}
   if(command==='status'){for(const d of state.devices.filter(d=>d.installed&&d.location==='local')){try{await identity(d,paths(stateDir,d));const check=await verifyInstallation({configFile:paths(stateDir,d).configFile});d.connection=check.passed?'verified':'failed';if(!check.passed){d.desktop_status='not_checked';d.desktop_client='not_checked';}else if(d.desktop_enabled){d.desktop_status='not_checked';}}catch{d.connection='failed';d.client='not_checked';}}await save(stateDir,state);return summary(state);}
   if(command==='add-device'){
@@ -99,9 +128,13 @@ export async function onboard(command,{stateDir,device,...options}={}){
    return summary(state);
   }
   const d=state.devices.find(x=>x.id===device);if(!d)fail('unknown_device');
-  if(command==='defer-desktop'&&!d.desktop_enabled){d.desktop=false;d.desktop_status='not_checked';d.desktop_client='not_checked';await save(stateDir,state);return summary(state);}
+  if(command==='defer-desktop'&&!d.installed){d.desktop=false;d.desktop_status='not_checked';d.desktop_client='not_checked';await save(stateDir,state);return summary(state);}
   if(d.location!=='local'||d.platform!==localPlatform(process.platform)||!probe().supported)return {ok:false,...summary(state),error:'run_supported_local_onboarding'};
   const p=paths(stateDir,d);
+  if(command==='effective-config'){
+   if(!d.installed)fail('install_first');const c=await identity(d,p),grant=c.hosts[0].capabilities?.desktop;
+   return {version:1,source:'runtime_config',device:d.id,configuration:{port:c.port,port_mode:c.onboarding.port_mode,host:{id:c.hosts[0].id,enabled:c.hosts[0].enabled,connection:c.hosts[0].connection,unsandboxed:c.hosts[0].unsandboxed},desktop:{requested:c.onboarding.desktop_requested,enabled:grant?.enabled===true,driver:grant?.driver??null},containers:c.environments.map(e=>({id:e.id,provider:e.provider}))},reconciliation:{external_tunnel:'not_managed',os_service:'not_managed',client:'requires_verification'}};
+  }
   if(command==='authorize'){
    if(options.hostAccess!==true)fail('host_authorization_required');
    if(d.containers&&options.containers!==true)fail('container_authorization_required');
@@ -118,8 +151,8 @@ export async function onboard(command,{stateDir,device,...options}={}){
    const mode=options.port!==undefined?'explicit':d.port_mode??'auto';
    const selectedPort=await selectLoopbackPort({preferred:options.port??d.port??8791,explicit:mode==='explicit'});
    d.owner??=crypto.randomUUID();d.port=selectedPort;d.port_mode=mode;await save(stateDir,state);
-   await createSetup({project:p.project,privateDir:p.privateDir,backend:d.containers?'both':'host',port:selectedPort,ownerId:d.owner});
-   const c=JSON.parse(await fs.readFile(p.configFile,'utf8'));d.installed=true;d.config_sha=crypto.createHash('sha256').update(await fs.readFile(p.configFile)).digest('hex');d.owner=c.owner_id;d.port=c.port;await save(stateDir,state);return summary(state);
+   await createSetup({project:p.project,privateDir:p.privateDir,backend:d.containers?'both':'host',port:selectedPort,desktopRequested:d.desktop,portMode:mode,ownerId:d.owner});
+   const c=JSON.parse(await fs.readFile(p.configFile,'utf8'));d.installed=true;d.config_sha=crypto.createHash('sha256').update(await fs.readFile(p.configFile)).digest('hex');d.owner=c.owner_id;projectConfiguration(d,c);await save(stateDir,state);return summary(state);
   }
   if(!d.installed)fail('install_first');if(command==='stop'){await privateDirectory(p.base);await privateDirectory(p.privateDir);}else await identity(d,p);
   if(command==='start'||command==='stop'||command==='enable-desktop'||command==='defer-desktop'||command==='reconfigure-port'){
@@ -133,12 +166,13 @@ export async function onboard(command,{stateDir,device,...options}={}){
    // Also refuse unknown/manual listeners; never change a grant beneath a running server.
    const {createServer}=await import('node:net');const socket=createServer();await new Promise((r,j)=>{socket.once('error',()=>j(Object.assign(Error('stop_before_desktop_change'),{code:'stop_before_desktop_change'})));socket.listen(d.port,'127.0.0.1',r);});await new Promise(r=>socket.close(r));
    const config=await identity(d,p);if(enabled)config.hosts[0].capabilities={desktop:{enabled:true,driver:desktopDriver(d.platform)}};else delete config.hosts[0].capabilities;
+   config.onboarding.desktop_requested=enabled;
    const raw=JSON.stringify(config,null,2)+'\n';
    if(enabled)d.desktop_authorized=true;
    d.desktop_pending={sha:digest(raw),enabled,selected:enabled};await save(stateDir,state);
    const temp=path.join(p.privateDir,'.desktop-'+crypto.randomUUID());
    try{await fs.writeFile(temp,raw,{mode:0o600,flag:'wx'});await fs.rename(temp,p.configFile);}finally{await fs.unlink(temp).catch(()=>{});}
-   d.config_sha=digest(raw);d.desktop_enabled=enabled;d.desktop=enabled;d.desktop_status='not_checked';d.desktop_client='not_checked';d.connection='not_checked';d.client='not_checked';delete d.challenge;delete d.desktop_pending;await save(stateDir,state);return summary(state);
+   d.config_sha=digest(raw);projectConfiguration(d,config);d.desktop_status='not_checked';d.desktop_client='not_checked';d.connection='not_checked';d.client='not_checked';delete d.challenge;delete d.desktop_pending;await save(stateDir,state);return summary(state);
   }
   if(command==='check-desktop'||command==='confirm-desktop-test'){
    if(!d.desktop_enabled||!d.desktop_authorized)fail('desktop_authorization_required');
@@ -149,14 +183,14 @@ export async function onboard(command,{stateDir,device,...options}={}){
    let status;try{status=await desktopRuntimeStatus(d,p);}catch{status={ready:false,state:'session_unverified'};}
    const allowed=['driver_unavailable','permission_denied','locked','no_session','session_unverified','unsupported'];
    d.desktop_status=status.ready===true?'ready':allowed.includes(status.state)?status.state:'session_unverified';if(d.desktop_status!=='ready')d.desktop_client='not_checked';else if(command==='confirm-desktop-test'){d.desktop_client='reported';d.desktop_snapshot=options.snapshotId;d.desktop_evidence=evidence;}await save(stateDir,state);
-   return {...summary(state),desktop_prerequisites:prerequisites,desktop_check:{driver:desktopDriver(d.platform),ready:d.desktop_status==='ready',state:d.desktop_status,scope:'authenticated_configured_server',prerequisites_scope:'installer_process',client_task_verified:false,client_task_attestation:d.desktop_client}};
+   return {...summary(state),desktop_prerequisites:prerequisites,desktop_check:{driver:d.configured_driver??desktopDriver(d.platform),ready:d.desktop_status==='ready',state:d.desktop_status,scope:'authenticated_configured_server',prerequisites_scope:'installer_process',client_task_verified:false,client_task_attestation:d.desktop_client}};
   }
   if(command==='reconfigure-port'){
    if(await ownedProcess(d,p))fail('stop_before_port_change');
    // Explicit migration opts into automatic ports; existing pinned endpoints never change silently.
    if(await possibleExistingService(d.port))fail('existing_service_ownership_unconfirmed');
    const mode=options.port===undefined?'auto':'explicit';const port=await selectLoopbackPort({preferred:options.port??d.port,explicit:mode==='explicit'});
-   if(port!==d.port)await relocatePort(stateDir,state,d,p,port,mode);else{d.port_mode=mode;await save(stateDir,state);}
+   if(port!==d.port||mode!==d.port_mode)await relocatePort(stateDir,state,d,p,port,mode);
    return summary(state);
   }
   if(command==='start'){

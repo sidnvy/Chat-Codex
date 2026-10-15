@@ -48,4 +48,25 @@ After the actual client completes the application task and returns a screenshot 
 
 Omit `--port` for normal onboarding. The default is a preference, not a requirement: choose an available loopback port and persist it in the runtime config. Never ask the user to terminate an unrelated process simply to free port 8791. Explicitly pinned ports retain their intent and require an explicit change if unavailable. On endpoint changes, refresh active local client connections and reconcile any external Tunnel upstream; a local verifier pass is not evidence that an external tunnel was updated. Keep runtime config, progress/digest and credentials consistent through supplied operations instead of manually editing one file.
 
-For a recorded installation that needs a new port, call `reconfigure-port --state-dir PATH --device SLUG` (automatic), or add `--port NUMBER` only for an explicitly selected fixed port. Stop only the verified Styx-owned process first if necessary. If an existing authenticated Styx server is running without an owned receipt, reconcile that server instead of starting a second one. Follow the returned endpoint-change handoff, then start/verify and repeat client acceptance.
+For a recorded installation that needs a new port, call `reconfigure-port --state-dir PATH --device SLUG` (automatic), or add `--port NUMBER` only for an explicitly selected fixed port. Stop only the verified Styx-owned process first if necessary. If a listener reports Styx-compatible health without an owned receipt, reconcile that server instead of starting a second one. Follow the returned endpoint-change handoff, then start/verify and repeat client acceptance.
+
+## Configuration authority and inspection
+
+For an installed device, run `node scripts/onboard.mjs effective-config --state-dir PATH --device SLUG` before diagnosing a suspected configuration mismatch. The sanitized result reads the admitted runtime config: port and allocation policy, Host grant, requested/enabled Desktop driver, and configured environments. It does not expose the token or private filesystem paths. It is configuration evidence, not proof the client loaded the connection or that a desktop task succeeded.
+
+The runtime `config.json` is the sole desired configuration for installed devices, including `onboarding.desktop_requested` and `onboarding.port_mode`. `onboarding.json` stores authorization, progress, process receipts, result attestations and integrity/recovery metadata. Before installation, it also holds the user's requested configuration; after installation, duplicate desired settings are removed. Version 1 ledgers migrate through the supplied commands without resetting consent or credentials. Do not manually synchronize the two files: unauthorized config edits fail the digest check, while stopping a verified owned process remains possible during drift.
+
+Use `enable-desktop`, `defer-desktop` and `reconfigure-port` for managed changes. External tunnel profiles, persistent OS services and active client sessions are not automatically reconciled. Follow their explicit handoffs and repeat actual-client verification after relevant changes.
+
+## macOS CLI and GUI preparation
+
+Read `node scripts/desktop-setup.mjs --help` from the selected source revision. This helper is separate from the onboarding ledger and handles existing reviewed artifacts; it does not download software, grant OS permissions or install an OS service.
+
+- `node scripts/desktop-setup.mjs check` inspects the existing signed Peekaboo GUI and separate CLI. The default GUI location is `/Applications/Peekaboo.app`; default CLI candidates are `/opt/homebrew/bin/peekaboo` and `/usr/local/bin/peekaboo`.
+- `node scripts/desktop-setup.mjs prepare` checks the same pair and returns missing-artifact or compatibility handoffs. `--software-access` records existing software authorization in those handoffs; it does not perform an installation.
+- `node scripts/desktop-setup.mjs start --launch-access` requests a background launch of the checked GUI after specific launch authorization. It does not force-quit an app or prove that its Bridge is ready.
+- `node scripts/desktop-setup.mjs startup --startup-access` returns instructions for the signed app's own Launch at Login setting. Guide that native action, inspect macOS Login Items and verify after a later normal login. The helper does not write a custom launchd job or claim startup is configured.
+
+Optional `--app-path ABS --cli-path ABS` select artifacts to inspect. The GUI's executable is not the CLI. These flags do not configure runtime executable lookup, and installer PATH checks do not prove the running service uses the same CLI. Follow any `runtime_cli_path_unconfirmed` handoff and verify the actual service through `check-desktop`. Do not copy these artifact paths into a nonexistent runtime setting.
+
+After launch, inspect the exact returned GUI Bridge socket, complete any required Screen Recording/Accessibility grants through the normal OS flow, and recheck the configured server and actual client task. Missing signed artifacts, an unreviewed CLI contract, unavailable Bridge, native startup confirmation or permission grants remain pending. Never manufacture readiness from `signed_pair_present` or `launch: requested`.
