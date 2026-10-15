@@ -2,7 +2,7 @@
 
 For a guided experience, give your local Codex agent the prompt in [INSTALL.md](../INSTALL.md). It starts with device selection and access authorization; the commands below are the underlying operator interface, not steps a novice must type. The agent procedure is [Styx Onboarding](../skills/styx-onboarding/SKILL.md).
 
-The supported automatic local path is a **non-root Linux or macOS user with Node.js 22+**. Styx runs a local authenticated MCP server with explicitly authorized Host execution. Docker supplies optional disposable execution environments on Linux; macOS Docker Desktop is not yet verified. Desktop control is optional and disabled by default.
+The supported automatic local path is a **non-root Linux or macOS user with Node.js 22+**. Styx runs a local authenticated MCP server with explicitly authorized Host execution. Docker supplies optional disposable execution environments on Linux; macOS Docker Desktop is not yet verified. Desktop preparation is selected by default in agent onboarding; access remains disabled until separately authorized. Users can explicitly defer it. See [default Desktop policy](DESKTOP-DEFAULTS.md).
 
 The package still identifies itself as `chat-codex@0.3.0` and is marked `private: true`. Install from this public repository, not an assumed `npm install -g styx` release. For repeatable deployments, check out a reviewed commit before `npm ci`. `npm pack` produces an artifact for trusted consumers; it does not publish a release. The `desktop/*` package exports support integrations, while `npm start` launches the Linux/macOS Host runtime.
 
@@ -62,7 +62,7 @@ npm run setup -- "$HOME/chat-codex-data/project" "$HOME/chat-codex-data/private"
 
 The resulting private directory contains `config.json`, `token` and `tunnel-authorization`. Directories use mode 0700 and files 0600. Keep credentials out of source control, command transcripts and chat messages. Setup registers Project `default`. Host mode registers Host `local`; Docker modes additionally register Environment `dev` without starting a container.
 
-`--backend host` requires no Docker but grants same-user, unsandboxed Host execution. `--backend both` grants both backends on Linux. Neither mode enables desktop control. `--port 8792` can select a free alternate port.
+`--backend host` requires no Docker but grants same-user, unsandboxed Host execution. `--backend both` grants both backends on Linux. These low-level setup modes do not themselves enable desktop control; the agent onboarding Desktop stage separately records consent and configures the driver. `--port 8792` can select a free alternate port.
 
 ## 3. Start and verify
 
@@ -113,7 +113,7 @@ Explicit target selection matters. Docker environments never fall back to Host e
 
 ## Desktop prerequisites
 
-Desktop is a separate opt-in capability, not part of the Docker first-run check. Command connectivity does not prove that a graphical session is usable. Built-in Host command execution supports Linux and macOS; Windows native Host installation is unsupported. macOS Host onboarding does not install Peekaboo or grant capture/accessibility permissions. macOS and Windows desktop workers require an integrator to supply a trusted transport, Core admission and snapshot handling. No desktop worker is installed or enabled by setup.
+Desktop is a default onboarding stage with its own authorization and acceptance, separate from the Docker first-run check. Command connectivity does not prove that a graphical session is usable. Built-in Host command execution supports Linux and macOS; Windows native Host installation is unsupported. macOS Host onboarding does not install Peekaboo or grant capture/accessibility permissions. The local macOS catalog uses the native session probe; remote macOS and Windows integrations additionally require a trusted transport and admission. The low-level setup command does not install desktop dependencies. Agent onboarding must prepare them, configure the Desktop grant with explicit consent, and report unsupported integrations as pending.
 
 | Native desktop | Required on the target | Supported integration guide |
 |---|---|---|

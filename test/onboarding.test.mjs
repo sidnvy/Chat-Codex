@@ -78,6 +78,8 @@ test('owned server receipt recovers lost parent progress without duplicate proce
   assert.equal(JSON.parse(await fs.readFile(stateFile,'utf8')).devices[0].process.pid,receipt.pid);
   const configFile=path.join(stateDir,'laptop/private/config.json');const config=JSON.parse(await fs.readFile(configFile,'utf8'));config.hosts[0].enabled=false;await fs.writeFile(configFile,JSON.stringify(config));
   assert.equal((await onboard('status',{stateDir})).devices[0].connection,'failed');
+  // An interrupted Desktop grant must not prevent stopping a drifted owned server.
+  const pending=JSON.parse(await fs.readFile(stateFile,'utf8'));pending.devices[0].desktop_pending={sha:'0'.repeat(64),enabled:true,selected:true};await fs.writeFile(stateFile,JSON.stringify(pending));
   // Ownership still permits revocation after the configuration has drifted.
   await onboard('stop',{stateDir,device:'laptop'});started=false;
   await assert.rejects(fetch('http://127.0.0.1:'+port+'/healthz',{signal:AbortSignal.timeout(1000)}));
@@ -105,3 +107,42 @@ test('Linux exact argv rejects extra arguments and process inspection failures f
  assert.equal(matchesProcess({args:['/node','/server','/config','extra','']},['/node','/server','/config']),false);
  await assert.rejects(processIdentity(123,{platform:'linux',readFile:async()=>{throw Error()},alive:()=>true}),/process_identity_unconfirmed/);
 });
+test('Desktop defaults to selection without consent and explicit defer preserves Host',{skip:!supported},()=>fixture(async stateDir=>{
+ const selected=await add(stateDir);assert.equal(selected.devices[0].capabilities.desktop,'selected_not_enabled');assert.equal(selected.devices[0].desktop_authorized,false);
+ await onboard('authorize',{stateDir,device:'laptop',hostAccess:true});await onboard('install',{stateDir,device:'laptop'});
+ const file=path.join(stateDir,'laptop/private/config.json'),original=await fs.readFile(file,'utf8');
+ await assert.rejects(onboard('enable-desktop',{stateDir,device:'laptop'}),/desktop_authorization_required/);assert.equal(await fs.readFile(file,'utf8'),original);
+ const deferred=await onboard('defer-desktop',{stateDir,device:'laptop'});assert.equal(deferred.devices[0].capabilities.desktop,'deferred');assert.equal(deferred.devices[0].installed,true);assert.equal(await fs.readFile(file,'utf8'),original);assert.equal((await add(stateDir)).devices[0].capabilities.desktop,'deferred');
+}));
+test('Desktop grant changes require stopped service and invalidate readiness',{skip:!supported,timeout:30000},()=>fixture(async stateDir=>{
+ await add(stateDir);await onboard('authorize',{stateDir,device:'laptop',hostAccess:true});
+ const socket=createServer();await new Promise((r,j)=>{socket.once('error',j);socket.listen(0,'127.0.0.1',r)});const port=socket.address().port;await new Promise(r=>socket.close(r));
+ await onboard('install',{stateDir,device:'laptop',port});let started=false;
+ try{
+  await onboard('start',{stateDir,device:'laptop'});started=true;
+  await assert.rejects(onboard('enable-desktop',{stateDir,device:'laptop',desktopAccess:true}),/stop_before_desktop_change/);
+  await onboard('stop',{stateDir,device:'laptop'});started=false;
+  const enabled=await onboard('enable-desktop',{stateDir,device:'laptop',desktopAccess:true});assert.equal(enabled.devices[0].capabilities.desktop,'not_checked');assert.equal(enabled.devices[0].desktop_client,'not_checked');assert.equal(enabled.devices[0].connection,'not_checked');
+  const file=path.join(stateDir,'laptop/private/config.json');assert.equal(JSON.parse(await fs.readFile(file)).hosts[0].capabilities.desktop.driver,process.platform==='darwin'?'peekaboo':'hyprland');
+  assert.equal((await onboard('install',{stateDir,device:'laptop'})).devices[0].installed,true);
+  await assert.rejects(onboard('confirm-desktop-test',{stateDir,device:'laptop'}),/verify_first/);
+  await onboard('defer-desktop',{stateDir,device:'laptop'});assert.equal(JSON.parse(await fs.readFile(file)).hosts[0].capabilities,undefined);
+  assert.equal((await onboard('install',{stateDir,device:'laptop'})).devices[0].installed,true);
+ }finally{if(started)await onboard('stop',{stateDir,device:'laptop'});}
+}));
+test('authenticated server desktop readiness alone never claims client task completion',{skip:!supported,timeout:30000},()=>fixture(async stateDir=>{
+ const {start}=await import('../src/server.mjs');const {DesktopDriverCatalog}=await import('../src/desktop/drivers.mjs');
+ await add(stateDir);await onboard('authorize',{stateDir,device:'laptop',hostAccess:true});
+ const socket=createServer();await new Promise((r,j)=>{socket.once('error',j);socket.listen(0,'127.0.0.1',r)});const port=socket.address().port;await new Promise(r=>socket.close(r));
+ await onboard('install',{stateDir,device:'laptop',port});await onboard('enable-desktop',{stateDir,device:'laptop',desktopAccess:true});
+ const driver=process.platform==='darwin'?'peekaboo':'hyprland';let probes=0;
+ const catalog=new DesktopDriverCatalog().register(driver,()=>({status:async()=>{probes++;return {driver,ready:true,state:'ready',session_id:'test-session',capabilities:[]}},observe:async()=>{throw Error('must not observe automatically')},act:async()=>{throw Error('must not act automatically')}}));
+ const server=await start(path.join(stateDir,'laptop/private/config.json'),{desktopCatalog:catalog});
+ try{
+  await onboard('verify',{stateDir,device:'laptop'});
+  const checked=await onboard('check-desktop',{stateDir,device:'laptop'});assert.ok(probes>0);assert.equal(checked.desktop_check.scope,'authenticated_configured_server');assert.equal(checked.desktop_check.ready,true);assert.equal(checked.devices[0].desktop_client,'not_checked');assert.notEqual(checked.overall,'complete');
+  await assert.rejects(onboard('confirm-desktop-test',{stateDir,device:'laptop',fromClient:true,snapshotId:'11111111-1111-4111-8111-111111111111'}),/desktop_task_evidence_required/);
+  const reported=await onboard('confirm-desktop-test',{stateDir,device:'laptop',fromClient:true,snapshotId:'11111111-1111-4111-8111-111111111111',desktopTask:'Test-only attestation',desktopResult:'Synthetic report used to test the attestation boundary',screenshotDelivered:true});
+  assert.equal(reported.devices[0].desktop_client,'reported');assert.equal(reported.desktop_check.client_task_verified,false);assert.notEqual(reported.overall,'complete','Host client task still missing');
+ }finally{server.server.closeAllConnections();await new Promise(r=>server.server.close(r));}
+}));

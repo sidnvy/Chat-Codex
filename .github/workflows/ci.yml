@@ -65,4 +65,4 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Native Host and onboarding without Docker
-        run: node --test test/setup.test.mjs test/doctor.test.mjs test/host.test.mjs test/onboarding.test.mjs test/onboarding-client.test.mjs test/onboarding-verifier.test.mjs
+        run: node --test test/setup.test.mjs test/doctor.test.mjs test/host.test.mjs test/onboarding.test.mjs test/onboarding-client.test.mjs test/onboarding-verifier.test.mjs test/desktop-catalog.test.mjs test/desktop-preflight.test.mjs
