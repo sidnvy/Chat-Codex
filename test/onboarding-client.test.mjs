@@ -27,7 +27,7 @@ test('official Codex CLI preserves unrelated config in isolated home',{skip:!pro
   const text=await fs.readFile(path.join(root,'config.toml'),'utf8');assert.match(text,/test-model/);assert.match(text,/unrelated-command/);
  }finally{await fs.rm(root,{recursive:true,force:true});}
 });
-test('actual stdio bridge authenticates and forwards tools and resources',{skip:process.platform!=='linux'||process.getuid?.()===0},async()=>{
+test('actual stdio bridge authenticates and forwards tools and resources',{skip:!['linux','darwin'].includes(process.platform)||process.getuid?.()===0},async()=>{
  const root=await fs.mkdtemp(path.join(os.tmpdir(),'styx-client-bridge-'));let instance,client;
  try{
   const socket=createServer();await new Promise((r,j)=>{socket.once('error',j);socket.listen(0,'127.0.0.1',r)});const port=socket.address().port;await new Promise(r=>socket.close(r));
@@ -57,7 +57,7 @@ test('agent procedure reaches pending actual-client gate with isolated Codex con
  const run=(command,args=[])=>JSON.parse(execFileSync(process.execPath,[cli,command,...(command==='probe'?[]:['--state-dir',stateDir]),...args],{env,encoding:'utf8',timeout:30000,stdio:['ignore','pipe','pipe']}));
  const device=['--device','laptop'];
  try{
-  assert.equal(run('probe').supported,true);run('init',['--client','codex']);run('add-device',['--id','laptop','--label','My laptop','--location','local','--platform','linux']);run('authorize',[...device,'--host-access']);
+  assert.equal(run('probe').supported,true);run('init',['--client','codex']);run('add-device',['--id','laptop','--label','My laptop','--location','local','--platform',process.platform==='darwin'?'macos':'linux']);run('authorize',[...device,'--host-access']);
   const socket=createServer();await new Promise((r,j)=>{socket.once('error',j);socket.listen(0,'127.0.0.1',r)});const port=socket.address().port;await new Promise(r=>socket.close(r));
   run('install',[...device,'--port',String(port)]);installed=true;run('start',device);
   // Start must return only after its process is ready for immediate verification.

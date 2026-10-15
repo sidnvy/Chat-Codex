@@ -6,8 +6,9 @@ import {execFileSync} from 'node:child_process';
 /** Create new, separate first-run data only. Never overwrite an installation. */
 export async function createSetup({project,privateDir,backend='host',port=8791,ownerId=crypto.randomUUID(),
  platform=process.platform,uid=process.getuid?.(),gid=process.getgid?.(),command=execFileSync}={}){
- if(platform!=='linux'||!Number.isInteger(uid)||uid===0||!Number.isInteger(gid))throw Error('Setup requires a non-root Linux user.');
+ if(!['linux','darwin'].includes(platform)||!Number.isInteger(uid)||uid<=0||!Number.isInteger(gid)||gid<0)throw Error('Setup requires a non-root Linux or macOS user.');
  if(!['docker','host','both'].includes(backend))throw Error('Choose docker, host or both.');
+ if(platform==='darwin'&&backend!=='host')throw Error('macOS setup currently supports Host only; container setup requires Linux.');
  if(!Number.isInteger(port)||port<1024||port>65535)throw Error('Port must be between 1024 and 65535.');
  if(!project||!privateDir||!path.isAbsolute(project)||!path.isAbsolute(privateDir))throw Error('Use absolute paths for both new directories.');
  // Resolve existing parents before checking overlap, including symlink aliases.

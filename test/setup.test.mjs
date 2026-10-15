@@ -27,3 +27,8 @@ test('Host opt-in needs no Docker command',()=>fixture(async root=>{
 test('symlink parent aliases cannot overlap setup directories',()=>fixture(async root=>{
  await fs.symlink(root,path.join(root,'alias'));await assert.rejects(createSetup({...opts(root),privateDir:path.join(root,'alias','project'),backend:'host'}),/separate new directories/);assert.deepEqual(await fs.readdir(root),['alias']);
 }));
+test('macOS Host setup is Docker-independent and rejects unsupported container setup before changes',()=>fixture(async root=>{
+ const options={...opts(root),platform:'darwin',uid:501,gid:20,backend:'host',command:()=>{throw Error('Docker must not be invoked');}};
+ await assert.rejects(createSetup({...options,backend:'both'}),/macOS setup currently supports Host only/);assert.deepEqual(await fs.readdir(root),[]);
+ const result=await createSetup(options);const config=JSON.parse(await fs.readFile(result.configFile));assert.equal(config.hosts[0].unsandboxed,true);assert.deepEqual(config.environments,[]);
+}));

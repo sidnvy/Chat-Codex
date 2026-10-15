@@ -22,10 +22,12 @@ export class HostRunner {
           cwd:this.config.project,detached:true,stdio:['pipe','pipe','pipe'],
           env:{PATH:[path.dirname(process.execPath),'/usr/bin','/bin'].join(':'),HOME:temporary,TMPDIR:temporary,LANG:'C.UTF-8',CHAT_CODEX_PROJECT:this.config.project},
         });
-        let stdout='',stderr='',size=0,reason=null;
+        let stdout='',stderr='',size=0,reason=null,groupTerminated=false;
         const killGroup=()=>{
-          if(!child.pid)return;
-          try{process.kill(-child.pid,'SIGKILL');}catch(e){if(e.code!=='ESRCH')this.blocked=true;}
+          if(!child.pid||groupTerminated)return;
+          // SIGKILL already targets every member. Re-signalling an exiting group
+          // can report EPERM on Darwin after its last member disappears.
+          try{process.kill(-child.pid,'SIGKILL');groupTerminated=true;}catch(e){if(e.code==='ESRCH')groupTerminated=true;else this.blocked=true;}
         };
         const stop=why=>{reason??=why;killGroup();child.stdout.destroy();child.stderr.destroy();};
         const onAbort=()=>stop('cancelled');

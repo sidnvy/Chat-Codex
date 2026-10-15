@@ -6,13 +6,13 @@ Run commands from the reviewed Styx checkout. Check that Node.js 22+ and npm are
 
 1. Run `node scripts/onboard.mjs probe` to inspect the local platform without creating state.
 2. Choose a new private absolute state directory outside source control. Initialize with `init --state-dir PATH --client codex` (or `chatgpt`). On resume, use `status --state-dir PATH` instead.
-3. Record each selected device using `add-device --state-dir PATH --id SLUG --label LABEL --location local --platform linux`. Other accepted selections are `--location remote` and `--platform macos|windows`; these record intent, not working enrollment. Add `--containers` only if selected. Desktop requests are recorded but not enabled by this installer; report that capability as pending even when Host setup succeeds.
+3. Record each selected device using `add-device --state-dir PATH --id SLUG --label LABEL --location local --platform linux`. Use `--platform macos` for local macOS Host setup. `--location remote` and `--platform windows` record intent, not working enrollment. Add `--containers` only for selected Linux containers; macOS Docker Desktop is not yet verified. Desktop requests are recorded but not enabled by this installer; report that capability as pending even when Host setup succeeds.
 4. After explaining and obtaining the specific Host grant, use `authorize --state-dir PATH --device SLUG --host-access`. Include `--containers` only for the selected, authorized option. Do not treat CLI consent flags as a substitute for the user's decision.
 5. Follow returned next actions. `install`, `start`, `verify` and `stop` take `--state-dir PATH --device SLUG`. The local server is task-owned; this is not an OS startup service. Preserve state and project data when stopping.
 
 Host execution is the default; missing Docker must not block Host-only setup. Before adding Docker, explain the daemon access required and obtain any missing installation authorization. Never automatically elevate the Host process to root. Dependencies not installed by the scripts remain explicit prerequisites.
 
-The first automatic installer is local Linux. For another device, guide the user to run this procedure there with its own local authorization and private state. Do not copy tokens or private configuration across devices, assume SSH access, or claim that recording several devices aggregates them into one Chat connection. Keep ready devices usable while others remain pending.
+Automatic Host setup supports local Linux and macOS. Windows native Host installation is unsupported. macOS Host support does not install Peekaboo or authorize desktop capture/control. For another device, guide the user to run this procedure there with its own local authorization and private state. Do not copy tokens or private configuration across devices, assume SSH access, or claim that recording several devices aggregates them into one Chat connection. Keep ready devices usable while others remain pending.
 
 ## Connect the intended client
 

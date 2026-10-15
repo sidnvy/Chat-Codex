@@ -18,9 +18,9 @@ The agent handles checks and configuration. It should explain any software insta
 
 ## What works today
 
-Automatic local configuration supports a non-root **Linux** account with Node.js 22+. Docker is needed only for optional containers. Missing system dependencies still require the appropriate installation path and authorization. The onboarding ledger can track other devices, but does not enroll remote machines or combine them behind one gateway.
+Automatic local configuration supports a non-root **Linux or macOS** account with Node.js 22+ for Host execution. Optional Docker setup is Linux-only; Docker Desktop on macOS is not yet verified. Missing system dependencies still require the appropriate installation path and authorization. The onboarding ledger can track other devices, but does not enroll remote machines or combine them behind one gateway.
 
-For local Codex, the agent can register a named connection using the supplied script, without copying the server token into the client configuration. ChatGPT still needs a compatible authenticated endpoint and its account-side authorization flow. Styx does not automatically create an OpenAI tunnel or generate platform API keys. macOS/Windows desktop workers are integration components, not native installers. Your agent should identify these boundaries before starting an unsupported installation.
+For local Codex, the agent can register a named connection using the supplied script, without copying the server token into the client configuration. ChatGPT still needs a compatible authenticated endpoint and its account-side authorization flow. Styx does not automatically create an OpenAI tunnel or generate platform API keys. Windows native Host installation is not supported. macOS Host setup does not install or enable Peekaboo desktop control; macOS/Windows desktop workers remain opt-in integration components. Your agent should identify these boundaries before starting an unsupported installation.
 
 You can resume later by telling your agent to continue Styx onboarding and giving it the saved state location. Local checks and a real task in your chosen Chat client are reported separately, so a pending connection is not mistaken for a completed installation.
 
