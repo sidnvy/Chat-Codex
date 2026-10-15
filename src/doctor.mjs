@@ -44,7 +44,7 @@ export async function runDoctor({
   let config=null,privateDir=null;
   if(!configFile){
     add('configuration','action_required','Private configuration not found in CHAT_CODEX_CONFIG.',
-      'Run guided setup when available, or npm run setup, then set CHAT_CODEX_CONFIG.');
+      'Run npm run setup in a terminal, then set CHAT_CODEX_CONFIG to the generated configuration.');
   }else if(!path.isAbsolute(configFile)){
     add('configuration','blocked','Configuration location must be an absolute path.',
       'Use the absolute path to the private config.json file.');

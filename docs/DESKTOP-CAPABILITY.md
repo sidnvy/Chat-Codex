@@ -32,12 +32,12 @@ This adapter uses Hyprland JSON IPC, scoped grim capture, wtype and ydotool. On 
 | Backend | Implementation | Actual verification |
 |---|---|---|
 | Linux / Hyprland | Operational driver with observe/status/type/key/bounded coordinate click | Real Linux workstation MCP HTTP Observe → Act → Verify against a dedicated Zenity scratch window, verified input and screenshot |
-| macOS / Peekaboo | Optional adapter, unit and protocol contracts | Bridge previously observed on macOS test host; this branch has not executed a verified macOS GUI mutation |
-| Windows / winapp UIA | Optional provisional adapter and contract | Windows GUI session and real UIA act not verified in this branch |
+| macOS / Peekaboo | Canonical adapter and restricted one-shot worker | Controlled native scratch acceptance through authenticated Core composition; installation-specific permissions and session checks still required |
+| Windows / winapp UIA | Canonical adapter, native HWND proof/capture and one-shot worker | Controlled native scratch acceptance plus compile-only Windows CI; neither enrolls or validates a new installation |
 
-Peekaboo requires a permission-granted Bridge, a trusted native session probe, and a process-generation-bound exact-window receipt; its default probe fails closed. See [Peekaboo adapter boundary](PEEKABOO-ADAPTER.md) for the pinned CLI contract and capture-file checks. Native Windows UIA can inspect in some locked sessions, but synthetic input needs an unlocked interactive Desktop. This adapter conservatively refuses mutations without an independently verified session-local Broker. The current Chat-Codex Host Runner is Linux-only; a Windows Coder Agent alone is not sufficient to establish GUI readiness.
+Peekaboo requires a permission-granted Bridge, a trusted native session probe, and a process-generation-bound exact-window receipt; its default probe fails closed. See [Peekaboo adapter boundary](PEEKABOO-ADAPTER.md) for the pinned CLI contract and capture-file checks. Native Windows UIA can inspect in some locked sessions, but synthetic input needs an unlocked interactive Desktop. The canonical Windows worker requires native same-user active-console and target desktop proof; an RDP-only session may be refused. The current Chat-Codex Host Runner is Linux-only; a Windows Coder Agent alone is not sufficient to establish GUI readiness.
 
-See [Windows onboarding preparation](WINDOWS-ONBOARDING.md) for a read-only Windows preflight.
+See [onboarding prerequisites](ONBOARDING.md#desktop-prerequisites), [Peekaboo worker](peekaboo-worker.md) and [Windows onboarding](WINDOWS-ONBOARDING.md) for the native installation and integration boundaries. These exports do not make the full Host Runner cross-platform.
 
 ## Safety/limitations
 
