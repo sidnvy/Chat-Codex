@@ -24,6 +24,7 @@ jobs:
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: docker pull node:22-bookworm-slim
       - run: npm run test:integration
+      - run: npm run test:onboarding
   plugin-extensions-isolated:
     runs-on: ubuntu-latest
     steps:

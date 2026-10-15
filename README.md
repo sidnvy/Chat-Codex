@@ -1,6 +1,6 @@
 # Styx (formerly Chat-Codex)
 
-> **Repository migration in progress.** The released package, MCP Server identity and portable Plugin still use `chat-codex` / `Chat-Codex` at v0.3.0. Renaming the repository does **not** update or reconnect existing installations. See [Styx Foundation RFC](docs/RFC-0002-STYX-FOUNDATION.md).
+> **Repository migration in progress.** The private package metadata, MCP Server identity and portable Plugin template still use `chat-codex` / `Chat-Codex` at v0.3.0. Renaming the repository does **not** update or reconnect existing installations. See [Styx Foundation RFC](docs/RFC-0002-STYX-FOUNDATION.md).
 
 **ChatGPT-native, self-hosted development workspace** with one typed execution API for persistent Hosts and disposable Environments.
 
@@ -41,6 +41,10 @@ Unknown IDs, invalid kind, extra target fields, path traversal and provider/work
 
 Execution receipts preserve stdout, stderr, exit_code, termination, duration_ms. Background tasks distinguish `running`, `completed`, `failed`, `cancelled`, `lost`, `unknown`; unknown is never success. The old five flat tools were removed. See [Migration Notes](docs/MIGRATION-v2.md).
 
+## Start here
+
+Use the [step-by-step onboarding guide](docs/ONBOARDING.md) for a first authenticated connection and an isolated Docker execution check. The supported installation is a source checkout with `npm ci`; `package.json` is `private: true`, and this guide does not assume an npm registry release or global installer.
+
 ## Requirements and installation
 
 - Linux, Node.js 22+, npm, a non-root user.
@@ -51,8 +55,6 @@ Execution receipts preserve stdout, stderr, exit_code, termination, duration_ms.
 git clone https://github.com/sidnvy/Styx.git
 cd Styx
 npm ci --ignore-scripts --no-audit --no-fund
-npm test
-
 # Docker only:
 docker pull node:22-bookworm-slim
 
@@ -61,15 +63,21 @@ mkdir -p "$HOME/chat-codex-data"
 npm run setup -- "$HOME/chat-codex-data/project" "$HOME/chat-codex-data/private" --backend docker
 export CHAT_CODEX_CONFIG="$HOME/chat-codex-data/private/config.json"
 npm start
+
+# In a second terminal, from the same checkout:
+npm run verify -- --config "$HOME/chat-codex-data/private/config.json"
+npm run verify -- --config "$HOME/chat-codex-data/private/config.json" --sandbox
 ~~~
+
+Run `npm run setup` without arguments for guided prompts. The positional form above is suitable for scripts. `--port` selects another loopback port.
 
 `--backend docker` is the secure default and registers no Host. For an explicitly trusted, unsandboxed Host choose `--backend host`; `--backend both` registers Host and Docker Environment together.
 
 The setup tool creates a private v2 config and Bearer token in a 0700 directory, 0600 files. A generated `owner_id` identifies Docker resources; project registration remains outside the Environment lifecycle. Credentials must remain outside both your repository and ChatGPT messages. Administrators edit registration in private config while the service is stopped. There is no model-facing Host enrollment tool.
 
-The server binds only `127.0.0.1:8791`, requires Bearer authorization, and rejects unexpected Host/Origin headers. `/healthz` proves only the process is live, not Environment readiness. Never expose this endpoint publicly without a correctly configured private tunnel/gateway.
+The server binds only loopback (`127.0.0.1:8791` by default), requires Bearer authorization, and rejects unexpected Host/Origin headers. `/healthz` proves only the process is live, not Environment readiness. Never expose this endpoint publicly without a correctly configured private tunnel/gateway.
 
-## Read-only installation Doctor (v0.4 development)
+## Diagnose and verify installation
 
 Run `npm run doctor` or `npm run --silent doctor -- --json` to inspect local
 prerequisites and configuration without provisioning containers, changing
@@ -82,8 +90,7 @@ identifies which prerequisites are missing and what to configure next.
 `ready` means **local preflight only**: it is not an authenticated MCP
 smoke test, verified ChatGPT account installation, or proof that the graphical
 desktop is unlocked. See [v0.4 product plan](docs/V0.4-PRODUCT-PLAN.md).
-Guided setup, a real first-run verifier and the capability dashboard are
-planned separately and are not yet included in this Doctor PR.
+`npm run verify -- --config /absolute/private/config.json` separately checks authenticated MCP. Add `--sandbox` to exercise a temporary, verifier-owned Docker environment; it does not execute in your registered Project or Host. Neither check installs the external ChatGPT connection. See [onboarding](docs/ONBOARDING.md) for the complete sequence.
 
 ## Provision an Environment
 
@@ -129,9 +136,9 @@ Direct `@resource-name` typing is not a guaranteed trigger. Composer Mentions cu
 
 Host Desktop is independent of Coder/SSH/WinRM command connectivity. The four APIs are target_desktop_status, target_desktop_observe, target_desktop_act and target_desktop_wait. Desktop is disabled by default. Trusted administrators may opt in a Local Linux Host with capabilities: {"desktop":{"enabled":true,"driver":"hyprland"}}. An Environment cannot inherit the Host GUI.
 
-Observe supports bounded window metadata and ephemeral exact-window screenshots (2 MiB max) with target-bound, one-use snapshots expiring in 30 seconds. Act returns verified:false until an independent observation proves the expected UI state.
+Observe supports bounded window metadata and ephemeral exact-window screenshots (2 MiB max) with target-bound, one-use snapshots expiring in 30 seconds. Act reports `verified:false`; independently check the expected UI state after dispatch. An uncertain outcome must not be retried automatically.
 
-Linux Hyprland is the first live-tested backend. Peekaboo macOS and Microsoft winapp Windows are provisional adapters with unit-tested contracts only; they need real permissions and interactive user-session acceptance. The current Host Runner remains Linux-only.
+Canonical Hyprland, Peekaboo and WinApp adapters have native scratch-window acceptance evidence in controlled configurations. That evidence does not install dependencies, admit another session or prove your installation. The full Host Runner and setup remain Linux-only. Cross-OS worker exports are building blocks for trusted integrations, not a cross-platform server installer. See the [platform prerequisites](docs/ONBOARDING.md#desktop-prerequisites).
 
 See [Desktop Capability ADR](docs/DESKTOP-CAPABILITY.md) and [generic Windows preflight](docs/WINDOWS-ONBOARDING.md).
 
@@ -148,6 +155,7 @@ Skills: Red-Green-Refactor, Host vs Disposable Environment, Safe Project Operati
 ~~~sh
 npm test                 # offline units, contracts, plugin schema
 npm run test:integration # REAL HTTP MCP Client, Host, Docker lifecycle
+npm run test:onboarding  # REAL authenticated first-run Docker verifier
 npm run test:all
 ~~~
 

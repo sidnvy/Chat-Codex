@@ -19,7 +19,9 @@
     "test:plugin": "node --test test/plugin.test.mjs",
     "test:provider": "node --test test/provider-contract.test.mjs",
     "test:contracts": "node --test test/mcp-contract-conformance.test.mjs",
-    "test:package": "node --test test/package-artifact.test.mjs"
+    "test:package": "node --test test/package-artifact.test.mjs",
+    "verify": "node scripts/verify.mjs",
+    "test:onboarding": "STYX_VERIFY_DOCKER=1 node --test test/onboarding-verifier.test.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.31.0",
