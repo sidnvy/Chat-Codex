@@ -51,3 +51,15 @@ test('POSIX Host worker bounds file access, execution time and output',async()=>
   assert.equal((await runner.run({op:'exec',command:'printf recovered',timeout_ms:5000})).stdout,'recovered');
  }finally{await fs.rm(root,{recursive:true,force:true});}
 });
+test('output-limit cleanup signals each owned process group only once',async()=>{
+ const {HostRunner}=await import('../src/host-runner.mjs');
+ const root=await fs.mkdtemp(path.join(os.tmpdir(),'styx-host-kill-once-'));
+ const kill=process.kill,signals=new Map();
+ process.kill=function(pid,signal){if(pid<0&&signal==='SIGKILL')signals.set(pid,(signals.get(pid)??0)+1);return kill.call(process,pid,signal);};
+ try{
+  const runner=new HostRunner({project:root,audit:path.join(root,'audit')});
+  const receipt=await runner.run({op:'exec',command:"node -e 'process.stdout.write(\"x\".repeat(100000))'",timeout_ms:5000});
+  assert.equal(receipt.termination,'output_limit');assert.equal(signals.size,1);assert.deepEqual([...signals.values()],[1]);
+  assert.equal(runner.blocked,false);
+ }finally{process.kill=kill;await fs.rm(root,{recursive:true,force:true});}
+});
