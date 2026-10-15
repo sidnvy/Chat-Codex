@@ -19,7 +19,7 @@ If no checkout exists, fetch INSTALL.md from https://github.com/sidnvy/Styx, res
 
 Use onboarding JSON state and next actions. Keep the private state path available for a later session, without exposing credentials or private configuration contents. Inspect existing state before performing changes; never erase a configuration to make an installation appear fresh.
 
-Run authorized deterministic steps without asking the user to copy commands. Ask for decisions when authority changes: software installation, administrator privileges, remote access, persistent startup or desktop permissions. Do not request confirmation again when the specific action was already authorized. Do not silently substitute Host access for a failed container setup.
+Run authorized deterministic steps without asking the user to copy commands. Ask for decisions when authority changes: software installation, administrator privileges, remote access, persistent startup or desktop permissions. Do not request confirmation again when the specific action was already authorized. Do not silently substitute Host access for a failed container setup. A busy default port is a configuration choice, not a reason to stop another service: use automatic port selection or the supported port-change operation and update the intended connection. Never terminate an unrelated listener to reclaim a preferred port.
 
 If a script reports a known prerequisite or waiting action, explain its purpose and the minimum user action. Recheck after completion; a user saying “done” is not technical evidence. An unresolved failure must preserve resumable progress. Do not repeatedly retry the same failure or broaden system changes to force success.
 

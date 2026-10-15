@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {createServer} from 'node:net';
+import {createServer as createHttpServer} from 'node:http';
 import {onboard} from '../src/onboarding.mjs';
 import {processIdentity,matchesProcess,localPlatform} from '../src/onboarding-process.mjs';
 const supported=['linux','darwin'].includes(process.platform)&&process.getuid?.()>0;
@@ -79,7 +80,7 @@ test('owned server receipt recovers lost parent progress without duplicate proce
   const configFile=path.join(stateDir,'laptop/private/config.json');const config=JSON.parse(await fs.readFile(configFile,'utf8'));config.hosts[0].enabled=false;await fs.writeFile(configFile,JSON.stringify(config));
   assert.equal((await onboard('status',{stateDir})).devices[0].connection,'failed');
   // An interrupted Desktop grant must not prevent stopping a drifted owned server.
-  const pending=JSON.parse(await fs.readFile(stateFile,'utf8'));pending.devices[0].desktop_pending={sha:'0'.repeat(64),enabled:true,selected:true};await fs.writeFile(stateFile,JSON.stringify(pending));
+  const pending=JSON.parse(await fs.readFile(stateFile,'utf8'));pending.devices[0].desktop_pending={sha:'0'.repeat(64),enabled:true,selected:true};pending.devices[0].port_pending={sha:'f'.repeat(64),port:54321,mode:'auto'};await fs.writeFile(stateFile,JSON.stringify(pending));
   // Ownership still permits revocation after the configuration has drifted.
   await onboard('stop',{stateDir,device:'laptop'});started=false;
   await assert.rejects(fetch('http://127.0.0.1:'+port+'/healthz',{signal:AbortSignal.timeout(1000)}));
@@ -145,4 +146,41 @@ test('authenticated server desktop readiness alone never claims client task comp
   const reported=await onboard('confirm-desktop-test',{stateDir,device:'laptop',fromClient:true,snapshotId:'11111111-1111-4111-8111-111111111111',desktopTask:'Test-only attestation',desktopResult:'Synthetic report used to test the attestation boundary',screenshotDelivered:true});
   assert.equal(reported.devices[0].desktop_client,'reported');assert.equal(reported.desktop_check.client_task_verified,false);assert.notEqual(reported.overall,'complete','Host client task still missing');
  }finally{server.server.closeAllConnections();await new Promise(r=>server.server.close(r));}
+}));
+async function occupiedPort(){const server=createHttpServer((request,response)=>{response.writeHead(404);response.end('unrelated-listener');});await new Promise((r,j)=>{server.once('error',j);server.listen(0,'127.0.0.1',r)});return {server,port:server.address().port,close:()=>new Promise(r=>server.close(r))};}
+test('auto install resumes occupied uninstalled selection without disturbing listener',{skip:!supported},()=>fixture(async stateDir=>{
+ const occupied=await occupiedPort();try{
+  await add(stateDir);await onboard('authorize',{stateDir,device:'laptop',hostAccess:true});
+  const file=path.join(stateDir,'onboarding.json'),state=JSON.parse(await fs.readFile(file));state.devices[0].port=occupied.port;await fs.writeFile(file,JSON.stringify(state));
+  const result=await onboard('install',{stateDir,device:'laptop'});assert.notEqual(result.devices[0].port,occupied.port);assert.equal(result.devices[0].port_mode,'auto');assert.equal(occupied.server.listening,true);
+ }finally{await occupied.close();}
+}));
+test('auto start relocates collision while explicit endpoint remains pinned',{skip:!supported,timeout:30000},()=>fixture(async stateDir=>{
+ await add(stateDir);await onboard('authorize',{stateDir,device:'laptop',hostAccess:true});const installed=await onboard('install',{stateDir,device:'laptop'});const oldPort=installed.devices[0].port;
+ const unrelated=createHttpServer((request,response)=>{response.writeHead(404);response.end('unrelated');});await new Promise((r,j)=>{unrelated.once('error',j);unrelated.listen(oldPort,'127.0.0.1',r)});let started=false;
+ try{
+  const result=await onboard('start',{stateDir,device:'laptop'});started=true;assert.notEqual(result.devices[0].port,oldPort);assert.equal(result.devices[0].endpoint_changed,true);assert.match(result.devices[0].endpoint_handoff,/external tunnel/);assert.equal(unrelated.listening,true);
+  const verified=await onboard('verify',{stateDir,device:'laptop'});assert.equal(verified.verification.passed,true);
+  await assert.rejects(onboard('reconfigure-port',{stateDir,device:'laptop'}),/stop_before_port_change/);
+  await onboard('stop',{stateDir,device:'laptop'});started=false;
+  const config=JSON.parse(await fs.readFile(path.join(stateDir,'laptop/private/config.json')));assert.equal(config.port,result.devices[0].port);
+ }finally{if(started)await onboard('stop',{stateDir,device:'laptop'});await new Promise(r=>unrelated.close(r));}
+}));
+test('explicit busy install does not write config',{skip:!supported},()=>fixture(async stateDir=>{
+ const occupied=await occupiedPort();try{
+  await add(stateDir);await onboard('authorize',{stateDir,device:'laptop',hostAccess:true});
+  await assert.rejects(onboard('install',{stateDir,device:'laptop',port:occupied.port}),e=>e.code==='port_in_use');assert.equal(occupied.server.listening,true);
+  await assert.rejects(fs.stat(path.join(stateDir,'laptop/private/config.json')),{code:'ENOENT'});
+ }finally{await occupied.close();}
+}));
+test('manual existing Styx service is never duplicated or reconfigured by collision recovery',{skip:!supported},()=>fixture(async stateDir=>{
+ const {start}=await import('../src/server.mjs');await add(stateDir);await onboard('authorize',{stateDir,device:'laptop',hostAccess:true});await onboard('install',{stateDir,device:'laptop'});
+ const file=path.join(stateDir,'laptop/private/config.json'),before=await fs.readFile(file,'utf8');const server=await start(file);
+ try{await assert.rejects(onboard('start',{stateDir,device:'laptop'}),/existing_service_ownership_unconfirmed/);await assert.rejects(onboard('reconfigure-port',{stateDir,device:'laptop'}),/existing_service_ownership_unconfirmed/);assert.equal(await fs.readFile(file,'utf8'),before);assert.equal(server.server.listening,true);}finally{server.server.closeAllConnections();await new Promise(r=>server.server.close(r));}
+}));
+test('legacy pinned endpoint changes only through explicit migration',{skip:!supported},()=>fixture(async stateDir=>{
+ const occupied=await occupiedPort();const port=occupied.port;await occupied.close();await add(stateDir);await onboard('authorize',{stateDir,device:'laptop',hostAccess:true});await onboard('install',{stateDir,device:'laptop',port});
+ const stateFile=path.join(stateDir,'onboarding.json'),state=JSON.parse(await fs.readFile(stateFile));delete state.devices[0].port_mode;await fs.writeFile(stateFile,JSON.stringify(state));
+ const listener=createHttpServer((request,response)=>{response.writeHead(404);response.end('unrelated');});await new Promise((r,j)=>{listener.once('error',j);listener.listen(port,'127.0.0.1',r)});
+ try{await assert.rejects(onboard('start',{stateDir,device:'laptop'}),e=>e.code==='port_in_use');const result=await onboard('reconfigure-port',{stateDir,device:'laptop'});assert.notEqual(result.devices[0].port,port);assert.equal(result.devices[0].port_mode,'auto');assert.equal(listener.listening,true);}finally{await new Promise(r=>listener.close(r));}
 }));
