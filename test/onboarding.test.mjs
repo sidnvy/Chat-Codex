@@ -113,7 +113,7 @@ test('Desktop defaults to selection without consent and explicit defer preserves
  await onboard('authorize',{stateDir,device:'laptop',hostAccess:true});await onboard('install',{stateDir,device:'laptop'});
  const file=path.join(stateDir,'laptop/private/config.json'),original=await fs.readFile(file,'utf8');
  await assert.rejects(onboard('enable-desktop',{stateDir,device:'laptop'}),/desktop_authorization_required/);assert.equal(await fs.readFile(file,'utf8'),original);
- const deferred=await onboard('defer-desktop',{stateDir,device:'laptop'});assert.equal(deferred.devices[0].capabilities.desktop,'deferred');assert.equal(deferred.devices[0].installed,true);assert.equal(await fs.readFile(file,'utf8'),original);assert.equal((await add(stateDir)).devices[0].capabilities.desktop,'deferred');
+ const deferred=await onboard('defer-desktop',{stateDir,device:'laptop'});assert.equal(deferred.devices[0].capabilities.desktop,'deferred');assert.equal(deferred.devices[0].installed,true);const deferredConfig=JSON.parse(await fs.readFile(file,'utf8'));assert.deepEqual(deferredConfig.hosts,JSON.parse(original).hosts);assert.equal(deferredConfig.onboarding.desktop_requested,false);assert.equal((await add(stateDir)).devices[0].capabilities.desktop,'deferred');
 }));
 test('Desktop grant changes require stopped service and invalidate readiness',{skip:!supported,timeout:30000},()=>fixture(async stateDir=>{
  await add(stateDir);await onboard('authorize',{stateDir,device:'laptop',hostAccess:true});
@@ -183,4 +183,31 @@ test('legacy pinned endpoint changes only through explicit migration',{skip:!sup
  const stateFile=path.join(stateDir,'onboarding.json'),state=JSON.parse(await fs.readFile(stateFile));delete state.devices[0].port_mode;await fs.writeFile(stateFile,JSON.stringify(state));
  const listener=createHttpServer((request,response)=>{response.writeHead(404);response.end('unrelated');});await new Promise((r,j)=>{listener.once('error',j);listener.listen(port,'127.0.0.1',r)});
  try{await assert.rejects(onboard('start',{stateDir,device:'laptop'}),e=>e.code==='port_in_use');const result=await onboard('reconfigure-port',{stateDir,device:'laptop'});assert.notEqual(result.devices[0].port,port);assert.equal(result.devices[0].port_mode,'auto');assert.equal(listener.listening,true);}finally{await new Promise(r=>listener.close(r));}
+}));
+test('installed desired settings live only in runtime config and effective output omits secrets',{skip:!supported},()=>fixture(async stateDir=>{
+ await add(stateDir);await onboard('authorize',{stateDir,device:'laptop',hostAccess:true});await onboard('install',{stateDir,device:'laptop'});
+ const stateFile=path.join(stateDir,'onboarding.json'),configFile=path.join(stateDir,'laptop/private/config.json');
+ let state=JSON.parse(await fs.readFile(stateFile));assert.equal(state.version,2);for(const key of ['port','port_mode','desktop','desktop_enabled','containers'])assert.equal(Object.hasOwn(state.devices[0],key),false,key);
+ const config=JSON.parse(await fs.readFile(configFile));assert.equal(config.onboarding.desktop_requested,true);assert.equal(config.onboarding.port_mode,'auto');
+ const effective=await onboard('effective-config',{stateDir,device:'laptop'});assert.equal(effective.configuration.port,config.port);assert.equal(effective.configuration.desktop.requested,true);assert.equal(effective.configuration.desktop.enabled,false);assert.equal(effective.source,'runtime_config');assert.equal(effective.reconciliation.external_tunnel,'not_managed');
+ const token=(await fs.readFile(path.join(stateDir,'laptop/private/token'),'utf8')).trim();assert.ok(!JSON.stringify(effective).includes(token));assert.ok(!JSON.stringify(effective).includes(stateDir));
+ // Stale old copies are never used as effective values after config has authority.
+ state.devices[0].port=65432;state.devices[0].desktop=false;state.devices[0].desktop_enabled=true;state.devices[0].containers=true;await fs.writeFile(stateFile,JSON.stringify(state));
+ const resumed=await onboard('effective-config',{stateDir,device:'laptop'});assert.equal(resumed.configuration.port,config.port);assert.equal(resumed.configuration.desktop.requested,true);assert.equal(resumed.configuration.desktop.enabled,false);assert.deepEqual(resumed.configuration.containers,[]);
+ await onboard('defer-desktop',{stateDir,device:'laptop'});state=JSON.parse(await fs.readFile(stateFile));for(const key of ['port','port_mode','desktop','desktop_enabled','containers'])assert.equal(Object.hasOwn(state.devices[0],key),false,key);
+}));
+test('version1 state migrates configuration preferences without changing permissions or losing consent',{skip:!supported},()=>fixture(async stateDir=>{
+ const {createHash}=await import('node:crypto');await add(stateDir);await onboard('authorize',{stateDir,device:'laptop',hostAccess:true});await onboard('install',{stateDir,device:'laptop'});
+ const stateFile=path.join(stateDir,'onboarding.json'),configFile=path.join(stateDir,'laptop/private/config.json');const c=JSON.parse(await fs.readFile(configFile));delete c.onboarding;const raw=JSON.stringify(c,null,2)+'\n';await fs.writeFile(configFile,raw);
+ const state=JSON.parse(await fs.readFile(stateFile));state.version=1;Object.assign(state.devices[0],{port:c.port,port_mode:'explicit',desktop:true,desktop_enabled:false,containers:false,config_sha:createHash('sha256').update(raw).digest('hex')});delete state.devices[0].config_authority;await fs.writeFile(stateFile,JSON.stringify(state));
+ const beforeToken=await fs.readFile(path.join(stateDir,'laptop/private/token'),'utf8');const effective=await onboard('effective-config',{stateDir,device:'laptop'});assert.equal(effective.configuration.port,c.port);assert.equal(effective.configuration.port_mode,'explicit');assert.equal(effective.configuration.desktop.requested,true);assert.equal(effective.configuration.desktop.enabled,false);
+ const migrated=JSON.parse(await fs.readFile(stateFile));assert.equal(migrated.version,2);assert.equal(migrated.devices[0].host_authorized,true);assert.equal(migrated.devices[0].desktop_authorized,false);assert.equal(Object.hasOwn(migrated.devices[0],'port'),false);assert.equal((await fs.stat(configFile)).mode&0o777,0o600);assert.equal(await fs.readFile(path.join(stateDir,'laptop/private/token'),'utf8'),beforeToken);
+ const after=JSON.parse(await fs.readFile(configFile));assert.deepEqual(after.hosts,c.hosts);assert.deepEqual(after.onboarding,{desktop_requested:true,port_mode:'explicit'});
+ after.port=after.port===65431?65432:65431;await fs.writeFile(configFile,JSON.stringify(after));await assert.rejects(onboard('effective-config',{stateDir,device:'laptop'}),/configuration_changed/);
+}));
+test('interrupted metadata migration resumes after config rename with no duplicate settings',{skip:!supported},()=>fixture(async stateDir=>{
+ const {createHash}=await import('node:crypto');await add(stateDir);await onboard('authorize',{stateDir,device:'laptop',hostAccess:true});await onboard('install',{stateDir,device:'laptop'});
+ const sf=path.join(stateDir,'onboarding.json'),cf=path.join(stateDir,'laptop/private/config.json');const config=JSON.parse(await fs.readFile(cf));const original={...config};delete original.onboarding;const oldRaw=JSON.stringify(original);const newRaw=JSON.stringify(config);await fs.writeFile(cf,newRaw);
+ const state=JSON.parse(await fs.readFile(sf));state.version=1;Object.assign(state.devices[0],{config_authority:false,port:config.port,port_mode:'auto',desktop:true,desktop_enabled:false,containers:false,config_sha:createHash('sha256').update(oldRaw).digest('hex'),config_pending:{sha:createHash('sha256').update(newRaw).digest('hex')}});await fs.writeFile(sf,JSON.stringify(state));
+ const effective=await onboard('effective-config',{stateDir,device:'laptop'});assert.equal(effective.configuration.port,config.port);const resumed=JSON.parse(await fs.readFile(sf));assert.equal(resumed.devices[0].config_pending,undefined);assert.equal(Object.hasOwn(resumed.devices[0],'port'),false);assert.equal(resumed.devices[0].config_authority,true);
 }));

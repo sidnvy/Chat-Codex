@@ -20,6 +20,10 @@ test('native macOS probe validates actual plist parsing and exposes only opaque 
   assert.notEqual(rotated.session_id,ready.session_id);
   assert.deepEqual(await macOSSessionProbe(runFor({IOConsoleLocked:true,IOConsoleUsers:[user]})),{ready:false,state:'locked'});
   for(const state of [{IOConsoleLocked:0,IOConsoleUsers:[user]},{IOConsoleLocked:true,IOConsoleUsers:[]},{IOConsoleLocked:false,IOConsoleUsers:[user,user]},{IOConsoleLocked:false,IOConsoleUsers:[{...user,kCGSSessionUserIDKey:502}]},{IOConsoleLocked:false,IOConsoleUsers:[{...user,kCGSessionLoginDoneKey:false}]}])assert.deepEqual(await macOSSessionProbe(runFor(state)),{ready:false});
+  assert.deepEqual(await macOSSessionProbe(runFor({IOConsoleLocked:false,IOConsoleUsers:[{...user,CGSSessionScreenIsLocked:true}]})),{ready:false,state:'locked'});
+  assert.equal((await macOSSessionProbe(runFor({IOConsoleLocked:false,IOConsoleUsers:[{...user,CGSSessionScreenIsLocked:false}]}))).ready,true);
+  for(const flag of [1,'true',{}])assert.deepEqual(await macOSSessionProbe(runFor({IOConsoleLocked:false,IOConsoleUsers:[{...user,CGSSessionScreenIsLocked:flag}]})),{ready:false});
+  for(const users of [[{...user,kCGSSessionUserIDKey:502,CGSSessionScreenIsLocked:true}],[user,{...user,CGSSessionScreenIsLocked:true}]])assert.deepEqual(await macOSSessionProbe(runFor({IOConsoleLocked:false,IOConsoleUsers:users})),{ready:false});
   process.getuid=()=>0;let called=false;assert.deepEqual(await macOSSessionProbe(async()=>{called=true;}),{ready:false});assert.equal(called,false);
  }finally{Object.defineProperty(process,'platform',platform);process.getuid=getuid;}
 });

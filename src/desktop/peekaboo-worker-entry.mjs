@@ -4,24 +4,25 @@ import {promisify} from 'node:util';
 import {PeekabooDesktop} from './peekaboo.mjs';
 import {macOSSessionProbe} from './macos-session.mjs';
 import {DesktopError} from './primitives.mjs';
+import {nativeCommandErrorCode} from './exec.mjs';
 const options=__STYX_WORKER_OPTIONS__;
 const exec=promisify(execFile),controller=new AbortController(),inflight=new Set();
 const end=Date.now()+options.timeoutMs;
 let expired=false,dispatched=false,receiptExpiry;
-const allowed=new Set(['locked','no_session','session_unverified','permission_denied','driver_unavailable','stale_target','target_not_found','unsupported_action','invalid_window','invalid_capture','invalid_payload','invalid_snapshot','invalid_operation','timeout']);
+const allowed=new Set(['locked','no_session','session_unverified','permission_denied','driver_unavailable','stale_target','target_not_found','unsupported_action','invalid_window','invalid_capture','capture_unavailable','invalid_payload','invalid_text','invalid_key','invalid_snapshot','invalid_operation','timeout']);
 const plain=v=>v!==null&&typeof v==='object'&&!Array.isArray(v);
 function keys(v,allowed){if(!plain(v)||Object.keys(v).some(k=>!allowed.includes(k)))throw new DesktopError('invalid_payload','Invalid input');}
 async function run(binary,args,config={}){
  if(expired||Date.now()>=end)throw new DesktopError('timeout','Deadline elapsed');
  if(!['peekaboo','python3'].includes(binary))throw new DesktopError('unsupported_action','Unsupported command');
- if(binary==='peekaboo'&&args[0]==='click'){
+ if(binary==='peekaboo'&&['click','type','press'].includes(args[0])){
   if(!Number.isSafeInteger(receiptExpiry)||Date.now()>=receiptExpiry)throw new DesktopError('invalid_snapshot','Expired receipt');
   dispatched=true;
  }
  const task=exec(binary,args,{encoding:'utf8',timeout:Math.max(1,Math.min(config.timeout_ms??10000,end-Date.now())),killSignal:'SIGKILL',maxBuffer:4194304,signal:controller.signal});
  inflight.add(task);
  try{return (await task).stdout;}
- catch(e){throw new DesktopError(expired||e.killed?'timeout':e.code==='ENOENT'?'driver_unavailable':'driver_error','Native command failed');}
+ catch(e){const error=new DesktopError(expired||e.killed?'timeout':e.code==='ENOENT'?'driver_unavailable':'driver_error','Native command failed');error.native_code=nativeCommandErrorCode(e.stdout);throw error;}
  finally{inflight.delete(task);}
 }
 async function main(){
@@ -37,15 +38,22 @@ async function main(){
    typeof req.receipt.title!=='string'||req.window.title!==req.receipt.title.slice(0,128))throw new DesktopError('stale_target','Receipt mismatch');
   if(!Number.isSafeInteger(req.receipt.observed_at)||req.receipt.observed_at>Date.now()||Date.now()-req.receipt.observed_at>=30000)throw new DesktopError('invalid_snapshot','Expired receipt');
   receiptExpiry=req.receipt.observed_at+30000;
-  keys(req.action,['type','element_id']);
-  if(req.action.type!=='invoke')throw new DesktopError('unsupported_action','Only observed element invocation is exposed');
-  if(!/^elem_[0-9]{1,16}$/.test(req.action.element_id??'')||!req.receipt.element_ids?.includes(req.action.element_id))throw new DesktopError('stale_target','Unobserved element');
+  if(req.action.type==='invoke'){
+   keys(req.action,['type','element_id']);
+   if(!/^elem_[0-9]{1,16}$/.test(req.action.element_id??'')||!req.receipt.element_ids?.includes(req.action.element_id))throw new DesktopError('stale_target','Unobserved element');
+  }else if(req.action.type==='type'){
+   keys(req.action,['type','text']);
+   if(typeof req.action.text!=='string'||req.action.text.length<1||req.action.text.length>500||req.action.text.includes('\0'))throw new DesktopError('invalid_text','Invalid text');
+  }else if(req.action.type==='key'){
+   keys(req.action,['type','key']);
+   if(typeof req.action.key!=='string'||req.action.key.length>40||! /^(?:(?:cmd|command|shift|option|alt|ctrl|control|fn)\+)*(?:return|tab|escape|delete|backspace|left|right|up|down|space|f[1-9]|f1[0-2]|[a-z0-9])$/i.test(req.action.key))throw new DesktopError('invalid_key','Invalid key');
+  }else throw new DesktopError('unsupported_action','Unsupported action');
  }
  const driver=new PeekabooDesktop(run,()=>macOSSessionProbe(run));
  if(req.operation==='status'){
   const s=await driver.status();
   return {driver:'peekaboo',ready:s.ready===true,state:allowed.has(s.state)||s.state==='ready'?s.state:'session_unverified',
-   ...(s.session_id?{session_id:s.session_id}:{}),capabilities:s.ready?['windows','window_screenshot','accessibility','element_invoke']:[]};
+   ...(s.session_id?{session_id:s.session_id}:{}),...(s.next_action?{next_action:s.next_action}:{}),...(s.permission_source?{permission_source:s.permission_source,permissions:s.permissions}:{}),capabilities:s.ready?['windows','window_screenshot','accessibility','keyboard','element_invoke']:[]};
  }
  if(req.operation==='windows')return await driver.observe({mode:'windows'});
  if(req.operation==='window'){

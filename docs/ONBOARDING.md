@@ -113,12 +113,12 @@ Explicit target selection matters. Docker environments never fall back to Host e
 
 ## Desktop prerequisites
 
-Desktop is a default onboarding stage with its own authorization and acceptance, separate from the Docker first-run check. Command connectivity does not prove that a graphical session is usable. Built-in Host command execution supports Linux and macOS; Windows native Host installation is unsupported. macOS Host onboarding does not install Peekaboo or grant capture/accessibility permissions. The local macOS catalog uses the native session probe; remote macOS and Windows integrations additionally require a trusted transport and admission. The low-level setup command does not install desktop dependencies. Agent onboarding must prepare them, configure the Desktop grant with explicit consent, and report unsupported integrations as pending.
+Desktop is a default onboarding stage with its own authorization and acceptance, separate from the Docker first-run check. Command connectivity does not prove that a graphical session is usable. Built-in Host command execution supports Linux and macOS; Windows native Host installation is unsupported. macOS Host onboarding does not download Peekaboo or grant capture/accessibility permissions. The Desktop setup helper checks the separately installed signed GUI/CLI pair and supports an explicitly authorized GUI launch; see the macOS preparation commands below. The local macOS catalog uses the native session probe; remote macOS and Windows integrations additionally require a trusted transport and admission. The low-level setup command does not install desktop dependencies. Agent onboarding must prepare them, configure the Desktop grant with explicit consent, and report unsupported integrations as pending.
 
 | Native desktop | Required on the target | Supported integration guide |
 |---|---|---|
 | Linux / Hyprland | Node 22+, `hyprctl`, `grim`, `wtype`, correct inherited Hyprland session; standalone pointer actions additionally need their configured input backend | [Hyprland worker](hyprland-worker.md), [local opt-in](DESKTOP-CAPABILITY.md#linux-opt-in) |
-| macOS / Peekaboo | Node 22+, `python3`, native `ioreg`, compatible Peekaboo/Bridge, operator-granted capture/accessibility permissions, existing unlocked console user | [Peekaboo worker](peekaboo-worker.md), [pinned adapter contract](PEEKABOO-ADAPTER.md) |
+| macOS / Peekaboo | Node 22+, `python3`, native `ioreg`, compatible separately signed Peekaboo CLI and GUI Bridge, operator-granted capture/accessibility permissions, existing unlocked console user | [Peekaboo worker](peekaboo-worker.md), [pinned adapter contract](PEEKABOO-ADAPTER.md) |
 | Windows / WinApp | Node 22+, Windows PowerShell, reviewed WinApp executable and native libraries with trusted hashes, same-user unlocked active physical console | [Windows onboarding](WINDOWS-ONBOARDING.md), [canonical worker](windows-worker.md) |
 
 Swift or other scratch-app compilers used by native acceptance harnesses are test prerequisites, not runtime dependencies of every worker. Workers retain narrower action profiles and image limits than the generic Core schema. Review the platform guide before composing one. No worker installs dependencies, unlocks a session, changes execution policy or bypasses OS permission controls.
@@ -144,10 +144,34 @@ For development checks, see [README tests](../README.md#tests). For packaging an
 
 ## Configuration ownership
 
-There is one runtime configuration per installation, not a hosted/global configuration center. The private `config.json` is authoritative for the local port, Projects, Hosts, Desktop grants and Environments. `onboarding.json` in the private state directory records progress, authorization, process ownership and the expected configuration digest; it is not an independent runtime configuration to edit manually. Credentials live in separate private files, never in chat.
+There is one runtime configuration per installation, not a hosted/global configuration center. The private `config.json` is authoritative for the local port, Projects, Hosts, Desktop grants and Environments. Its `onboarding` preferences store `desktop_requested` and the `auto`/`explicit` port allocation policy. The request records desired setup; it does not itself enable the Desktop grant. `onboarding.json` in the private state directory records progress, authorization, process ownership and the expected configuration digest; it is not an independent runtime configuration to edit manually. Installed-device ledgers omit duplicate port, port policy, Desktop selection/grant and container settings; pre-install intent remains in the ledger until config exists. Version 1 ledgers migrate atomically on normal onboarding commands, preserving authorization and credentials. Credentials live in separate private files, never in chat.
 
 The local Codex registration points to the stdio bridge with the absolute config path. New bridge connections read that configuration rather than duplicating its port in Codex settings. Existing active connections may need to reconnect after endpoint changes. External Tunnel profiles and OS service definitions are currently separate configuration surfaces; this installer does not automatically rewrite them or certify their boot persistence. Any endpoint change requires rechecking the selected client and externally configured upstreams.
 
-Use the supplied onboarding operations for managed changes; editing config alone intentionally triggers configuration-drift protection. Stopping a verified owned process remains supported during drift. A future unified management command should coordinate these surfaces without moving secrets into the progress ledger.
+Use the supplied onboarding operations for managed changes; editing config alone intentionally triggers configuration-drift protection. Stopping a verified owned process remains supported during drift. Managed local changes coordinate runtime config and ledger integrity; external tunnels and OS services remain explicit handoffs rather than automatically reconciled surfaces.
 
 For an existing installation blocked by an occupied port, use `node scripts/onboard.mjs reconfigure-port --state-dir PATH --device SLUG` to select an available automatic port, or add `--port NUMBER` to pin a specific free port. Stop a verified Styx-owned server first when it is running. Do not terminate the unrelated occupant of a conflicting port. The operation preserves project data and credentials, updates runtime config and progress together, invalidates connection acceptance, and reports the external endpoint handoff. Then run start/verify and reconnect the intended client.
+
+### Inspect effective settings
+
+```sh
+node scripts/onboard.mjs effective-config --state-dir /absolute/private/state --device laptop
+```
+
+The JSON projection identifies `runtime_config` as its source and includes the configured port/policy, local Host authority, Desktop request/grant/driver and environment identities. It omits credential values, owner IDs and private file paths. A valid effective configuration is not an operational health or client acceptance test. Unexpected manual changes still fail closed under digest protection; use the supplied mutation commands rather than editing progress to bypass it.
+
+### Prepare the macOS Desktop pair
+
+```sh
+node scripts/desktop-setup.mjs check
+node scripts/desktop-setup.mjs prepare
+# Only after the corresponding launch/startup authorization:
+node scripts/desktop-setup.mjs start --launch-access
+node scripts/desktop-setup.mjs startup --startup-access
+```
+
+Peekaboo.app and the Peekaboo CLI are separate signed artifacts. The helper verifies their expected identities and the reviewed CLI contract. It uses `/Applications/Peekaboo.app` and standard Homebrew CLI locations by default; `--app-path ABS` and `--cli-path ABS` inspect alternate locations. These options do not alter Styx's runtime PATH or persist executable paths in its config. A CLI installed at a custom path must also be resolvable by the actual service before desktop verification can pass.
+
+`prepare` returns explicit missing-artifact handoffs; it does not fetch or install software. `--software-access` only records that software preparation has been authorized in the handoff. `start` requests a background GUI launch; a successful request does not establish Bridge readiness. `startup` guides the app's native Launch at Login setting and later normal-login verification; no custom launchd job, hidden preference or OS permission change is performed. The helper reports startup as pending until the native step is handled separately.
+
+Follow the returned exact Bridge-socket and permission checks, then use authenticated `check-desktop` and the actual-client desktop acceptance procedure. Keep installer artifact checks, service readiness, native login persistence and client task/screenshot evidence separate.

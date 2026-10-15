@@ -17,11 +17,13 @@ if valid:
  r=active[0]
  uid=r.get('kCGSSessionUserIDKey'); generation=r.get('CGSSessionUniqueSessionUUID'); session=r.get('kCGSSessionIDKey')
  valid=type(uid) is int and uid==os.geteuid() and isinstance(generation,str) and bool(generation) and type(session) is int
-ready=valid and d.get('IOConsoleLocked') is False
+locked=valid and (d.get('IOConsoleLocked') is True or r.get('CGSSessionScreenIsLocked') is True)
+session_lock_valid=valid and ('CGSSessionScreenIsLocked' not in r or type(r.get('CGSSessionScreenIsLocked')) is bool)
+ready=valid and session_lock_valid and not locked and d.get('IOConsoleLocked') is False
 if ready:
  identity=json.dumps([uid,generation,session],separators=(',',':')).encode()
  print(json.dumps({'ready':True,'session_id':hashlib.sha256(identity).hexdigest()}))
-else: print(json.dumps({'ready':False,**({'state':'locked'} if valid and d.get('IOConsoleLocked') is True else {})}))
+else: print(json.dumps({'ready':False,**({'state':'locked'} if locked else {})}))
 `],{timeout_ms:7000});
   const proof=JSON.parse(result);
   return proof.ready===true&&/^[a-f0-9]{64}$/.test(proof.session_id)?{ready:true,session_id:proof.session_id}:

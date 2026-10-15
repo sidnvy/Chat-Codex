@@ -26,6 +26,7 @@ export async function inspectDesktopPrerequisites({platform=process.platform,env
   result.next_actions.push({code:'pointer_access_unverified',message:'Pointer input additionally needs ydotool and authorized daemon/device access. Binary discovery alone does not prove pointer input works.'});
  }else{
   result.environment={kind:'macos_console',verified:false};
+  result.next_actions.push({code:'macos_gui_bridge_required',message:'Install a verified compatible Peekaboo CLI and Peekaboo.app pair. Launch the GUI app in this user session; the adapter requires its explicit per-user Bridge socket and verifies its process generation. Local CLI permissions are not the GUI Bridge permissions.'});
   result.next_actions.push({code:'macos_permissions_and_session',message:'Use an unlocked console session owned by this account. Check Screen Recording and Accessibility permissions for the actual Peekaboo execution identity; recheck with the native driver after authorization.'});
  }
  const missing=result.dependencies.filter(d=>d.required&&!d.available).map(d=>d.name);

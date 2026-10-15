@@ -26,15 +26,17 @@ async function main(){
 if(state.delay)await new Promise(r=>setTimeout(r,state.delay));
 if(state.fail){process.stderr.write('PRIVATE_NATIVE_ERROR');process.exit(1);}
 let data={};
-if(args[0]==='permissions')data={permissions:['Screen Recording','Accessibility'].map(name=>({name,isGranted:!state.denied}))};
+if(args[0]==='bridge')data={candidates:[{socketPath:args[args.indexOf('--bridge-socket')+1],result:{success:{_0:{hostKind:'gui',hostIdentity:{bundleIdentifier:'boo.peekaboo.mac',processIdentifier:100,processStartIdentityDecimal:'123',codeSignatureHash:'test-build'}}}}}]};
+if(args[0]==='permissions')data={source:'bridge',permissions:['Screen Recording','Accessibility','Event Synthesizing'].map(name=>({name,isGranted:!state.denied}))};
 if(args[0]==='app')data={apps:[{pid:42,name:'Scratch App',bundle_id:'org.example.scratch',process_start_identity_decimal:state.start}],warnings:[]};
 if(args[0]==='window')data={target_application_info:{pid:42},inventory_completeness:'complete',windows:[{window_id:123,window_title:state.title}]};
 if(args[0]==='see'){
+ if(state.captureRefused){console.log(JSON.stringify({success:false,error:{code:'CAPTURE_FAILED',message:'PRIVATE_NATIVE_ERROR'}}));process.exit(1);}
  const dest=args[args.indexOf('--path')+1],png=Buffer.alloc(state.size);Buffer.from([137,80,78,71,13,10,26,10]).copy(png);if(state.badPng)png[7]=0;fs.writeFileSync(dest,png);
  data={snapshot_id:'snapshot-exact',snapshot_reusable:true,mutation_targeting_available:true,semantic_scope:'exact_or_requested',capture_mode:'window',coordinate_context:{window:{window_id:123,title:state.title}},observation:{target:{window_id:123}},window_title:state.title,screenshot_raw:dest,ui_elements:[{id:'elem_1',role:'button',label:'Commit',value:'visible'}]};
 }
-if(args[0]==='click'){fs.writeFileSync(${JSON.stringify(log)},JSON.stringify(args));if(state.failMutation)process.exit(1);}
-console.log(JSON.stringify({success:true,data,...(args[0]==='click'?{outcome}:{})}));
+if(['click','type','press'].includes(args[0])){fs.writeFileSync(${JSON.stringify(log)},JSON.stringify(args));if(state.failMutation)process.exit(1);}
+console.log(JSON.stringify({success:true,data,...(['click','type','press'].includes(args[0])?{outcome}:{})}));
 }main();
 `,{mode:0o755});
  const call=async(req,options={})=>{
@@ -49,7 +51,7 @@ console.log(JSON.stringify({success:true,data,...(args[0]==='click'?{outcome}:{}
 
 test('serialized Peekaboo worker preserves exact capture and invoke receipts without Host dependencies',async t=>{
  const f=await fixture(t);const status=await f.call({operation:'status'});
- assert.equal(status.result.ready,true);assert.deepEqual(status.result.capabilities,['windows','window_screenshot','accessibility','element_invoke']);
+ assert.equal(status.result.ready,true);assert.deepEqual(status.result.capabilities,['windows','window_screenshot','accessibility','keyboard','element_invoke']);
  const seen=(await f.observe()).result;assert.equal(seen.window.app,'org.example.scratch');assert.equal(seen.elements[0].value,'visible');
  assert.equal(seen.window.process_start,undefined);assert.equal(seen.window.full_title,undefined);
  assert.deepEqual(await fs.readdir(f.tmp),[]);
@@ -64,7 +66,7 @@ test('Peekaboo worker denies stale sessions, expiry and expanded actions before 
   mutation();await f.save();const r=await f.call({operation:'act',window:seen.window,receipt:seen.receipt,action:{type:'invoke',element_id:'elem_1'}});assert.equal(r.ok,false);
  }
  f.state.locked=false;await f.save();
- for(const action of [{type:'type',text:'not exposed'},{type:'invoke',element_id:'elem_2'}]){
+ for(const action of [{type:'key',key:'--foreground'},{type:'invoke',element_id:'elem_2'}]){
   const r=await f.call({operation:'act',window:seen.window,receipt:seen.receipt,action});assert.equal(r.ok,false);
  }
  const r=await f.call({operation:'act',window:seen.window,receipt:{...seen.receipt,observed_at:Date.now()-30000},action:{type:'invoke',element_id:'elem_1'}});assert.equal(r.error,'invalid_snapshot');
@@ -91,4 +93,34 @@ test('Peekaboo inventory is bounded parallel, ordered, and retains completeness 
   return JSON.stringify({success:true,data:{target_application_info:{pid},inventory_completeness:pid===8?'partial':'complete',windows:[{window_id:pid===8?1:pid,window_title:'window'}]}});
  });
  const result=await driver.inventory();assert.equal(peak,4);assert.deepEqual(result.windows.map(w=>w.pid),[1,2,3,4,5,6,7,8]);assert.equal(result.truncated,true);assert.ok(result.duplicate_ids.has('1'));
+});
+
+ test('Peekaboo worker routes bounded keyboard input through exact GUI Bridge receipts',async t=>{
+ const f=await fixture(t);
+ for(const action of [{type:'type',text:'hello 中文'},{type:'key',key:'cmd+a'}]){
+  const seen=(await f.observe()).result;
+  const result=await f.call({operation:'act',window:seen.window,receipt:seen.receipt,action});
+  assert.equal(result.result.outcome,'dispatched_unverified');
+  const args=JSON.parse(await fs.readFile(f.log,'utf8'));
+  assert.ok(args.includes('--bridge-socket'));assert.ok(args.includes('--snapshot'));assert.ok(args.includes('--window-id'));assert.ok(!args.includes('--foreground'));assert.ok(!args.includes('--no-remote'));
+ }
+ const seen=(await f.observe()).result;
+ for(const action of [{type:'type',text:'a'.repeat(501)},{type:'type',text:'x',foreground:true},{type:'key',key:'cmd+a Return'}])assert.equal((await f.call({operation:'act',window:seen.window,receipt:seen.receipt,action})).ok,false);
+ f.state.failMutation=true;await f.save();
+ assert.equal((await f.call({operation:'act',window:seen.window,receipt:seen.receipt,action:{type:'key',key:'Return'}})).result.outcome,'outcome_unknown');
+});
+
+test('Peekaboo bounded discovery prioritizes visible apps beyond background inventory cap',async()=>{
+ const queried=[];
+ const apps=Array.from({length:58},(_,i)=>({pid:i+1,name:'app',process_start_identity_decimal:String(i+1)}));
+ const driver=new PeekabooDesktop(async(_cmd,args)=>{
+  if(args[0]==='app')return JSON.stringify({success:true,data:{apps:args.includes('--include-background')?apps:[apps[54]]}});
+  const pid=Number(args[args.indexOf('--pid')+1]);queried.push(pid);return JSON.stringify({success:true,data:{target_application_info:{pid},inventory_completeness:'complete',windows:[{window_id:pid,window_title:'window'}]}});
+ });
+ const result=await driver.inventory();assert.equal(queried.length,50);assert.equal(result.windows[0].pid,55);assert.equal(result.truncated,true);
+});
+
+test('Peekaboo worker preserves capture refusal without claiming a lock or leaking native text',async t=>{
+ const f=await fixture(t);f.state.captureRefused=true;await f.save();
+ const result=await f.observe();assert.deepEqual(result,{ok:false,error:'capture_unavailable'});assert.ok(!JSON.stringify(result).includes('PRIVATE_NATIVE_ERROR'));await assert.rejects(fs.access(f.log));
 });

@@ -6,7 +6,7 @@ Desktop preparation belongs to the default device onboarding journey. Containers
 
 | Platform | Default path | Preparation and current limits |
 | --- | --- | --- |
-| macOS | Peekaboo | Prepare a reviewed compatible CLI/Bridge, Python and native session tools; guide Screen Recording and Accessibility permissions. Confirm an unlocked same-user console. |
+| macOS | Peekaboo | Prepare the separately signed reviewed CLI and GUI Bridge, Python and native session tools; guide Screen Recording and Accessibility permissions. Confirm an unlocked same-user console. |
 | Linux / Hyprland | Hyprland adapter | Check the active compositor session and required capture/input programs. Check pointer prerequisites separately; Hyprland support is not generic Linux desktop support. |
 | Windows | WinApp integration | Preserve reviewed binary hashes and native session checks. Automatic standalone Windows Host installation is not implemented; report this handoff as unsupported rather than complete. |
 
@@ -15,6 +15,8 @@ Keep the existing platform adapters behind Styx Desktop Core. CUA remains a sepa
 ## Deterministic preparation
 
 Read-only preflight identifies missing dependencies, unsupported sessions and the next required user action. The agent prepares missing software using reviewed platform installation instructions within the user's authorization. This repository does not yet contain a universal driver downloader; it must not report dependency installation from a configuration flag.
+
+For macOS, `node scripts/desktop-setup.mjs check` or `prepare` validates existing signed CLI/GUI artifacts. `start --launch-access` requests an authorized GUI launch. `startup --startup-access` returns the native Launch at Login handoff; it does not create a service or change permissions. Missing artifacts remain a reviewed installation handoff. Artifact-path flags do not configure the service PATH.
 
 After explicit Desktop authorization, use the onboarding command to enable the admitted driver in private configuration while the owned server is stopped. Restart and reverify the server and client. Keep access credentials private. If the user defers Desktop, retain the choice and keep Host operations available. Resume existing installations without overwriting unrelated configuration.
 
