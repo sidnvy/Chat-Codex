@@ -8,7 +8,7 @@ const quote=s=>"'"+s.replaceAll("'","'\\''")+"'";
 async function main(){
  const args=process.argv.slice(2);
  if(args.includes('--help')||args.includes('-h')){console.log(usage);return;}
- let project,privateDir,backend='host',port=8791;
+ let project,privateDir,backend='host',port;
  if(!args.length){
   if(!process.stdin.isTTY)throw Error('Guided setup requires a terminal. Supply two absolute new directory paths, or use --help.');
   const rl=createInterface({input:process.stdin,output:process.stdout});
@@ -20,7 +20,7 @@ async function main(){
    if(backend!=='docker'&&(await rl.question('Enable unsandboxed same-user Host access? Type yes: ')).trim()!=='yes')throw Error('Host setup cancelled.');
    project=(await rl.question('New Project directory ('+path.join(os.homedir(),'styx-project')+'): ')).trim()||path.join(os.homedir(),'styx-project');
    privateDir=(await rl.question('New private configuration directory ('+path.join(os.homedir(),'.styx-private')+'): ')).trim()||path.join(os.homedir(),'.styx-private');
-   const answer=(await rl.question('Loopback port (8791): ')).trim();if(answer)port=Number(answer);
+   const answer=(await rl.question('Loopback port (automatic; prefer 8791): ')).trim();if(answer)port=Number(answer);
   }finally{rl.close();}
  }else{
   [project,privateDir]=args.splice(0,2);
@@ -30,6 +30,7 @@ async function main(){
  if(args.length===0&&process.argv.length>2&&backend!=='docker'&&!process.argv.includes('--backend'))throw Error('For noninteractive Host setup, explicitly select --backend host or use agent onboarding authorization.');
  const result=await createSetup({project,privateDir,backend,port});
  console.log('Configuration created: '+result.configFile);
+ console.log('Local MCP endpoint: http://127.0.0.1:'+result.port+'/mcp');
  if(backend!=='docker')console.log('Host access enabled explicitly: UNSANDBOXED, same-user filesystem and network.');
  console.log('Desktop is disabled. No Environment has been created or started.');
  console.log('Next, in this terminal:\n  export CHAT_CODEX_CONFIG='+quote(result.configFile)+'\n  npm run doctor\n  npm start');

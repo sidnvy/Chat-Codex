@@ -8,7 +8,7 @@ async function fixture(fn){const root=await fs.mkdtemp(path.join(os.tmpdir(),'st
 const opts=root=>({project:path.join(root,'project'),privateDir:path.join(root,'private'),backend:'docker',platform:'linux',uid:1000,gid:1000});
 test('Docker setup pins inspected digest and keeps credentials outside project',()=>fixture(async root=>{
  const r=await createSetup({...opts(root),command:()=>JSON.stringify(['node@sha256:'+'a'.repeat(64)])});
- const config=JSON.parse(await fs.readFile(r.configFile));assert.deepEqual(config.hosts,[]);assert.match(config.docker.image,/@sha256:a{64}$/);assert.deepEqual(await fs.readdir(r.project),[]);
+ const config=JSON.parse(await fs.readFile(r.configFile));assert.equal(config.port,r.port);assert.ok(r.port>=1024&&r.port<=65535);assert.deepEqual(config.hosts,[]);assert.match(config.docker.image,/@sha256:a{64}$/);assert.deepEqual(await fs.readdir(r.project),[]);
  for(const f of ['config.json','token','tunnel-authorization'])assert.equal((await fs.stat(path.join(r.privateDir,f))).mode&0o777,0o600);
  assert.equal((await fs.stat(r.privateDir)).mode&0o777,0o700);
  const token=(await fs.readFile(path.join(r.privateDir,'token'),'utf8')).trim();assert.equal(token.length,43);assert.equal(await fs.readFile(path.join(r.privateDir,'tunnel-authorization'),'utf8'),'Bearer '+token+'\n');

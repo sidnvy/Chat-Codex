@@ -2,14 +2,15 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {execFileSync} from 'node:child_process';
+import {selectLoopbackPort} from './ports.mjs';
 
 /** Create new, separate first-run data only. Never overwrite an installation. */
-export async function createSetup({project,privateDir,backend='host',port=8791,ownerId=crypto.randomUUID(),
+export async function createSetup({project,privateDir,backend='host',port,ownerId=crypto.randomUUID(),
  platform=process.platform,uid=process.getuid?.(),gid=process.getgid?.(),command=execFileSync}={}){
  if(!['linux','darwin'].includes(platform)||!Number.isInteger(uid)||uid<=0||!Number.isInteger(gid)||gid<0)throw Error('Setup requires a non-root Linux or macOS user.');
  if(!['docker','host','both'].includes(backend))throw Error('Choose docker, host or both.');
  if(platform==='darwin'&&backend!=='host')throw Error('macOS setup currently supports Host only; container setup requires Linux.');
- if(!Number.isInteger(port)||port<1024||port>65535)throw Error('Port must be between 1024 and 65535.');
+ if(port!==undefined&&(!Number.isInteger(port)||port<1024||port>65535))throw Error('Port must be between 1024 and 65535.');
  if(!project||!privateDir||!path.isAbsolute(project)||!path.isAbsolute(privateDir))throw Error('Use absolute paths for both new directories.');
  // Resolve existing parents before checking overlap, including symlink aliases.
  const canonical=async p=>path.join(await fs.realpath(path.dirname(path.resolve(p))),path.basename(path.resolve(p)));
@@ -30,6 +31,7 @@ export async function createSetup({project,privateDir,backend='host',port=8791,o
   image='node:22-bookworm-slim@'+digest.split('@')[1];
  }
  if(!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(ownerId))throw Error('Invalid installation identity');
+ port=await selectLoopbackPort({preferred:port??8791,explicit:port!==undefined});
  const config={version:2,owner_id:ownerId,port,
   projects:[{id:'default',path:project}],
   hosts:backend==='docker'?[]:[{id:'local',project:'default',enabled:true,connection:'local',unsandboxed:true}],

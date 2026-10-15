@@ -62,7 +62,7 @@ npm run setup -- "$HOME/chat-codex-data/project" "$HOME/chat-codex-data/private"
 
 The resulting private directory contains `config.json`, `token` and `tunnel-authorization`. Directories use mode 0700 and files 0600. Keep credentials out of source control, command transcripts and chat messages. Setup registers Project `default`. Host mode registers Host `local`; Docker modes additionally register Environment `dev` without starting a container.
 
-`--backend host` requires no Docker but grants same-user, unsandboxed Host execution. `--backend both` grants both backends on Linux. These low-level setup modes do not themselves enable desktop control; the agent onboarding Desktop stage separately records consent and configures the driver. `--port 8792` can select a free alternate port.
+`--backend host` requires no Docker but grants same-user, unsandboxed Host execution. `--backend both` grants both backends on Linux. These low-level setup modes do not themselves enable desktop control; the agent onboarding Desktop stage separately records consent and configures the driver. Without `--port`, setup prefers 8791 and chooses an available loopback port when it is occupied. The selected port is saved in private configuration. An explicit `--port` is pinned and fails if occupied; choose another port instead of terminating its owner.
 
 ## 3. Start and verify
 
@@ -94,7 +94,7 @@ If verification reports `cleanup: unconfirmed`, keep the reported `recovery_dire
 
 ## 4. Connect your MCP client
 
-The default endpoint is `http://127.0.0.1:8791/mcp`, with Bearer authentication. A remote client needs your own secure tunnel or gateway and compatible Host/Origin configuration. Configure its authorization using the client's secret storage and the locally generated token; never paste the token into a conversation. The root `mcp.json` contains an `example.invalid` placeholder, not a service URL.
+The endpoint is `http://127.0.0.1:<configured-port>/mcp`, with Bearer authentication. Setup prefers port 8791 but may select another available port; use the recorded configuration rather than hardcoding 8791. A remote client needs your own secure tunnel or gateway and compatible Host/Origin configuration. Configure its authorization using the client's secret storage and the locally generated token; never paste the token into a conversation. The root `mcp.json` contains an `example.invalid` placeholder, not a service URL.
 
 Install or authorize the connection through your client's supported workflow. Local verification does not prove external reachability, account authorization, Composer Mentions or App Home rendering. Confirm that the client lists Styx's tools before asking it to execute work.
 
@@ -132,7 +132,7 @@ After admission, check `target_desktop_status`, then observe only an owned harml
 | Doctor says configuration missing | Complete setup, then use its exact absolute config path via `--config` or `CHAT_CODEX_CONFIG`. |
 | Setup refuses existing paths | Use new separate directories, or start the existing installation with its existing config. Do not delete data merely to rerun setup. |
 | Docker image or daemon unavailable | Check Docker access under the same user and pull the reviewed image. Host-only is an explicit authority choice, not a fallback. |
-| Server cannot bind | Stop the conflicting owned process or create a configuration using another port. Use that config for verification. |
+| Server cannot bind | Preserve the existing listener. Agent onboarding can relocate an automatically selected port; an explicitly pinned port needs an explicit change. Reconcile any external tunnel upstream after an endpoint change. |
 | Verifier reports `cleanup: unconfirmed` | Preserve the reported `recovery_directory`. Stop and inspect its owned Docker resources before cleanup; do not blindly rerun or delete the directory while an operation may still be running. |
 | Authenticated verifier fails | Confirm the intended server uses the same config/token, and inspect the sanitized error. Do not print or send credentials. |
 | Local verification passes, client connection fails | Check external endpoint routing, allowed Host/Origin and client authorization separately. |
@@ -141,3 +141,13 @@ After admission, check `target_desktop_status`, then observe only an owned harml
 | Action reports an unknown outcome | Do not repeat the input. Obtain fresh observation and independently determine whether it took effect. |
 
 For development checks, see [README tests](../README.md#tests). For packaging and publication boundaries, see [release governance](RELEASE-GOVERNANCE.md).
+
+## Configuration ownership
+
+There is one runtime configuration per installation, not a hosted/global configuration center. The private `config.json` is authoritative for the local port, Projects, Hosts, Desktop grants and Environments. `onboarding.json` in the private state directory records progress, authorization, process ownership and the expected configuration digest; it is not an independent runtime configuration to edit manually. Credentials live in separate private files, never in chat.
+
+The local Codex registration points to the stdio bridge with the absolute config path. New bridge connections read that configuration rather than duplicating its port in Codex settings. Existing active connections may need to reconnect after endpoint changes. External Tunnel profiles and OS service definitions are currently separate configuration surfaces; this installer does not automatically rewrite them or certify their boot persistence. Any endpoint change requires rechecking the selected client and externally configured upstreams.
+
+Use the supplied onboarding operations for managed changes; editing config alone intentionally triggers configuration-drift protection. Stopping a verified owned process remains supported during drift. A future unified management command should coordinate these surfaces without moving secrets into the progress ledger.
+
+For an existing installation blocked by an occupied port, use `node scripts/onboard.mjs reconfigure-port --state-dir PATH --device SLUG` to select an available automatic port, or add `--port NUMBER` to pin a specific free port. Stop a verified Styx-owned server first when it is running. Do not terminate the unrelated occupant of a conflicting port. The operation preserves project data and credentials, updates runtime config and progress together, invalidates connection acceptance, and reports the external endpoint handoff. Then run start/verify and reconnect the intended client.
