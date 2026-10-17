@@ -1,22 +1,30 @@
-# Styx VNext acceptance gates
+# Styx VNext acceptance gates — macOS, Linux, Windows only
 
-| Gate | Status | Evidence |
+| Gate | Status | Evidence / qualification |
 | --- | --- | --- |
-| Catalog allow/deny and explicit defaults | PASS | gateway/test/registry.test.mjs |
-| Authenticated HTTP MCP + session isolation | PASS | gateway/test/http.test.mjs |
-| Real Codex process/stdin/PTY | PASS | packages/styx-exec-adapter/test |
-| Styx MCP HTTP to real Codex WS | PASS, isolated Linux | gateway/test/live.test.mjs (STYX_LIVE_EXEC_TEST=1) |
-| GUI Broker scope and socket policies | PASS with fixtures | packages/styx-gui-broker/test |
-| macOS embedded Cua scratch | PASS in prior pilot | User-supplied 2026-10-17 prototype ZIP |
-| Real ChatGPT registration to new Gateway | NOT RUN | separate integration |
+| Catalog allow/deny and Windows paths | PASS unit | gateway/test/registry.test.mjs; exec-adapter/test/windows.test.mjs |
+| Authenticated MCP and per-session isolation | PASS integration | gateway/test/http.test.mjs |
+| Codex Exec stdout/stdin/PTY | PASS real Linux | packages/styx-exec-adapter/test |
+| MCP HTTP -> real Codex Exec WSS loopback | PASS | gateway/test/live.test.mjs, STYX_LIVE_EXEC_TEST=1 |
+| Native Cua 0.36.0 MCP | PASS all 3 hosts | host/native-cua-smoke.cjs |
+| Portable Cua tool contract | PASS all 3 hosts | generated gateway/cua-portable-0.36.0.json |
+| Linux Hyprland XWayland screenshot + AX + click | PASS scratch | host/native-cua-gui.cjs |
+| Linux Hyprland Wayland screenshot + AX + click | PASS scratch | host/native-cua-gui.cjs |
+| macOS Embedded Cua Styx.app GUI scratch | PASS prior pilot | isolated 2026-10-17 prototype; not repeated in this work |
+| Windows Cua MCP on user logon session | PASS read-only | native smoke init / list_apps |
+| Windows GUI screenshot / click / independent readback | BLOCKED / NOT RUN | safe scratch fixture unavailable |
+| Three-OS unattended headless CI | PENDING CI | .github/workflows/styx-vnext.yml |
 | Host Outbound WS | NOT IMPLEMENTED | next milestone |
-| Signed/notarized macOS Styx.app | NOT RUN | release gate |
-| Linux Hyprland / Windows UIA native | NOT RUN | release gate |
-| Browser Playwright/CDP | NOT RUN | separate milestone |
-| Durable cross-restart task recovery | NOT IMPLEMENTED | fail closed |
-| Production Coder/Charon replacement | NO-GO | intentionally unchanged |
+| Signed/notarized macOS product | NOT RUN | release gate |
+| Real ChatGPT -> Styx -> three host execution | NOT RUN | integration gate |
+| Browser Playwright/CDP | NOT RUN | separate component |
+| Cross-restart process durability | NOT IMPLEMENTED | fail closed |
+| Production migration | NO-GO | intentionally excluded |
 
-Native macOS evidence is limited to an owned scratch window. It does not prove
-arbitrary-app support, macOS signing/upgrades or Windows/Linux behavior.
+The three native Cua schemas share tool names but are not byte-identical.
+Styx exposes the common compatible field set from native version 0.36.0.
+Actions never automatically retry an unknown mutation. The result of a GUI
+dispatch alone is not proof of an actual state change.
 
-GO for isolated development, NO-GO for production migration.
+No production service, user authorization or Tunnel configuration changed.
+GO for additive implementation; NO-GO for production cutover.

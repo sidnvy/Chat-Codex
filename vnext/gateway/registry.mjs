@@ -2,6 +2,7 @@ import path from 'node:path';
 
 const idPattern = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 const plain = v => v !== null && typeof v === 'object' && !Array.isArray(v);
+const nativePaths = platform => platform === 'win32' ? path.win32 : path.posix;
 function requireValue(ok, message) { if (!ok) throw new TypeError(message); }
 
 export class TargetRegistry {
@@ -16,10 +17,10 @@ export class TargetRegistry {
       requireValue(['linux', 'darwin', 'win32'].includes(target.platform), 'Invalid platform');
       requireValue(typeof target.generation === 'string' && target.generation.length > 0,
         'Target generation required');
-      requireValue(typeof target.cwd === 'string' && path.isAbsolute(target.cwd), 'Absolute cwd required');
-      requireValue(typeof target.shell === 'string' && path.isAbsolute(target.shell), 'Absolute shell required');
+      requireValue(typeof target.cwd === 'string' && nativePaths(target.platform).isAbsolute(target.cwd), 'Absolute cwd required');
+      requireValue(typeof target.shell === 'string' && nativePaths(target.platform).isAbsolute(target.shell), 'Absolute shell required');
       requireValue(Array.isArray(target.shells) && target.shells.includes(target.shell) &&
-        target.shells.every(s => typeof s === 'string' && path.isAbsolute(s)),
+        target.shells.every(s => typeof s === 'string' && nativePaths(target.platform).isAbsolute(s)),
       'Explicit shell allowlist required');
       requireValue(typeof target.allowed === 'boolean', 'Host access decision required');
       const transport = target.exec;
@@ -35,8 +36,26 @@ export class TargetRegistry {
       }
       requireValue(target.env === undefined || (plain(target.env) &&
         Object.values(target.env).every(v => typeof v === 'string')), 'Invalid command environment');
-      requireValue(target.gui === undefined || (plain(target.gui) &&
-        typeof target.gui.enabled === 'boolean'), 'Invalid GUI capability');
+      const computer = target.computer;
+      if (computer !== undefined) {
+        requireValue(plain(computer) && typeof computer.enabled === 'boolean',
+          'Invalid computer capability');
+        if (computer.enabled) {
+          requireValue(['stdio','mcp-http'].includes(computer.transport), 'Invalid Cua transport');
+          if (computer.transport === 'stdio') {
+            requireValue(typeof computer.binary === 'string' &&
+              nativePaths(target.platform).isAbsolute(computer.binary), 'Cua local binary required');
+            requireValue(computer.socket === undefined || typeof computer.socket === 'string',
+              'Invalid Cua socket');
+          } else {
+            requireValue(typeof computer.url === 'string' &&
+              (computer.url.startsWith('https://') || computer.url.startsWith('http://')),
+              'Cua MCP endpoint required');
+            requireValue(typeof computer.token_file === 'string' &&
+              path.isAbsolute(computer.token_file), 'Gateway-local Cua token file required');
+          }
+        }
+      }
       this.targets.set(target.id, Object.freeze({...target}));
     }
     requireValue(config.default_environment_id === undefined ||
@@ -54,7 +73,7 @@ export class TargetRegistry {
   list() {
     return [...this.targets.values()].filter(t => t.allowed).map(t => ({
       environment_id: t.id, kind: t.kind, platform: t.platform,
-      capabilities: ['exec', ...(t.gui?.enabled ? ['computer'] : [])]
+      capabilities: ['exec', ...(t.computer?.enabled ? ['computer'] : [])]
     }));
   }
 }

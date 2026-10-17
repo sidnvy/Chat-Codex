@@ -5,3 +5,9 @@ node_modules/
 .env
 *.token
 .DS_Store
+# Raw native host-schema captures contain local release details; generated portable contract is committed.
+host/fixture-cua-*.json
+host/scratch-*.ps1
+host/scratch-*.cs
+__pycache__/
+*.pyc

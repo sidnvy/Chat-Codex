@@ -1,44 +1,60 @@
-# Styx VNext architecture — 2026-10-17
+# Styx VNext — one product, one cross-platform native Cua provider
 
-## One product, two deployment roles
+          ChatGPT (planning)
+                  |
+           MCP Streamable HTTP
+                  |
+             Styx Gateway
+           target + ownership
+              /       \
+     Codex Exec        Cua MCP Driver
+     Process/PTY       Computer Use
+              \       /
+          Native Host OS
+        macOS/Linux/Windows
 
-Styx Gateway accepts model-facing MCP, resolves environment_id and routes tools.
-Styx Host Runtime provides native execution; it contains Codex Exec Server for
-Shell / Files / PTY and an optional native GUI Driver. These are deployment
-roles in one project, not separate Styx Core or Charon products.
+No second reasoning agent. Coder is absent from the new dependency graph.
+Existing Charon is used only for temporary bootstrap and native acceptance
+until the independent Styx transport has passed tests.
 
-~~~text
-ChatGPT (sole reasoning layer)
-   |
-   | MCP
-   v
-Styx Gateway (MCP tools, target registry, session ownership)
-   |
-   | Direct WebSocket; outbound planned
-   v
-Styx Host Runtime
-   +---- Codex Exec Server -> process / PTY / filesystem
-   +---- Styx.app -> Cua embedded driver -> macOS GUI
-   +---- Browser provider (Playwright/CDP planned)
-~~~
+## Execution and computer-use boundaries
 
-MCP SDK owns the outer protocol; the Codex Exec Server owns process RPC.
-Gateway maps session ownership, checked target selection, output cursors and
-bounded results. GUI permission/session generation remains separate from the
-Exec session. A Native GUI action receipt is not independent verification.
+The Codex Exec Server owns process RPC, PTY and filesystem. Gateway exposes
+Codex-shaped exec_command and write_stdin with environment_id. The Cua Driver
+owns accessibility, screenshots, UIA/AX/AT-SPI and native action results.
+Gateway passes native Cua MCP calls and their official schemas unchanged
+except for one optional environment_id. Native GUI sessions and screen
+snapshot tokens are distinct from process sessions.
 
-## Operating rules
+The native Cua 0.36.0 schema differs among macOS, Linux, and Windows:
+get_window_state requires window_id for macOS/Windows but only pid on Linux;
+Linux-only coordinate_frame, platform-only action and differently shaped
+count/capture_id are not published by the common model-facing surface.
+The portable contract was generated from the actual three-OS tools/list
+responses and is checked against all three native runtimes. Do not fake
+portability by publishing fields that only one OS accepts.
 
-- Explicitly registered, allowed targets only; no tool-supplied URL or token.
-- An omitted environment_id resolves to the configured default only.
-- Authenticated MCP sessions own process IDs and GUI element tokens; cross-chat
-  or cross-session reuse is denied.
-- No autonomous local agent or additional reasoning loop.
-- No automatic retry when a mutation outcome is unknown.
-- Codex version rust-v0.163.0 is pinned for contract tests, not assumed to
-  have a stable third-party protocol contract forever.
-- Model tools are exec_command, write_stdin, list_execution_environments,
-  optionally get_window_state, click, set_value.
-- Direct WebSocket works for a reachable Host. Outbound connector, GUI packaging
-  and Browser provider have separate acceptance gates.
-- Root Styx production entrypoint stays unchanged until independent acceptance.
+## Native session identity
+
+macOS: A signed Styx.app with stable bundle identifier must own
+Accessibility and Screen Recording TCC permissions and the Embedded Cua
+driver. Standalone read-only Cua mcp --direct is not a substitute for this.
+Linux: Cua runs inside the user graphical session; Hyprland XWayland and
+Wayland owned Zenity button tests have passed, including screenshot and
+independent exit-code readback.
+Windows: Cua MCP has started and responded in the same interactive desktop
+session as Explorer. An owned scratch GUI action test is still pending.
+
+The Gateway keeps one native Cua MCP Client per authenticated MCP owner
+and environment. Other owners cannot reuse its implicit native session.
+Only catalog-allowed targets may execute. Model arguments cannot set
+credentials, endpoints or permission grants. The native Cua result does not
+constitute proof of desired application state without independent readback.
+
+## Still open
+
+True Host Outbound WebSocket; independent Host bootstrap and package
+distribution; Windows GUI action/readback; signed/notarized macOS app;
+real ChatGPT MCP registration; long-process recovery; optional browser
+provider. These are release gates, not claims of passing tests.
+Production Styx, Charon, Coder, and Tunnel are untouched.

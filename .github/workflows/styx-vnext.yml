@@ -35,3 +35,46 @@ jobs:
         run: npm run test:all
       - name: Real executor via authenticated MCP HTTP
         run: STYX_LIVE_EXEC_TEST=1 npm test
+  native-cua-contract:
+    name: Cua MCP on ${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+          - runner: macos-15
+          - runner: windows-2025
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run pinned native Cua MCP compatibility test
+        env:
+          DO_NOT_TRACK: '1'
+          CUA_DRIVER_RS_TELEMETRY_ENABLED: 'false'
+          STYX_CUA_SCHEMA_ONLY: '1'
+          STYX_CUA_DIRECT: '0'
+        run: |
+          set -euo pipefail
+          python vnext/host/prepare-cua.py --output "$RUNNER_TEMP/styx-cua-native"
+          if [[ "$RUNNER_OS" == 'Windows' ]]; then
+            executable=cua-driver.exe
+          else
+            executable=cua-driver
+          fi
+          if [[ "$RUNNER_OS" == 'macOS' ]]; then
+            export STYX_CUA_DIRECT='1'
+          fi
+          export STYX_CUA_PORTABLE_MANIFEST="$GITHUB_WORKSPACE/vnext/gateway/cua-portable-0.36.0.json"
+          node vnext/host/native-cua-smoke.cjs "$RUNNER_TEMP/styx-cua-native/$executable"

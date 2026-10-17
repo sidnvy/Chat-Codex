@@ -55,7 +55,10 @@ export async function createGatewayHttp(gateway, {
       onsessioninitialized: id => { sid = id; sessions.set(id, {transport, server}); }
     });
     const server = gateway.serverForOwner(owner);
-    transport.onclose = () => { if (sid) sessions.delete(sid); };
+    transport.onclose = () => {
+      if (sid) sessions.delete(sid);
+      void gateway.closeOwner?.(owner).catch(() => {});
+    };
     try {
       await server.connect(transport);
       await transport.handleRequest(req, res);

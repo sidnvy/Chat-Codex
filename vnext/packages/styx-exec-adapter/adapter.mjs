@@ -26,6 +26,27 @@ function validate(name, args) {
 }
 const identity = binding => JSON.stringify([binding.id, binding.generation, binding.runtime.sessionId]);
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+const nativePath = platform => platform === 'win32' ? path.win32 : path.posix;
+function cwdUri(location, platform) {
+  if (platform === 'win32') {
+    if (!/^[a-zA-Z]:\\/.test(location)) fail('invalid_workdir');
+    // RFC8089 Windows drive URI, without interpreting a Windows path using
+    // the Gateway's local POSIX host semantics.
+    return new URL('file:///' + location.replace(/\\/g, '/')).href;
+  }
+  return pathToFileURL(location).href;
+}
+function commandArgs(platform, shell, command, login) {
+  const name = nativePath(platform).basename(shell).toLowerCase();
+  if (platform === 'win32') {
+    if (!['powershell.exe','pwsh.exe','pwsh'].includes(name)) fail('unsupported_shell');
+    return [shell, '-NoLogo', ...(login === true ? [] : ['-NoProfile']),
+      '-NonInteractive', '-Command', command];
+  }
+  if (!['sh', 'bash', 'zsh'].includes(name)) fail('unsupported_shell');
+  return [shell, login === false ? '-c' : '-lc', command];
+}
+
 
 export class ExecAdapter {
   constructor({resolve, maxSessions = 64, maxRetainedIds = 100000}) {
@@ -37,9 +58,10 @@ export class ExecAdapter {
     if (typeof owner !== 'string' || !owner) fail('invalid_owner');
     const b = await this.resolve(environment_id, owner);
     if (!b || !b.id || !b.generation || !b.runtime?.sessionId || b.runtime.lost ||
-        !path.isAbsolute(b.cwd) || !path.isAbsolute(b.shell) || !Array.isArray(b.shells))
+        !['linux','darwin','win32'].includes(b.platform) ||
+        !nativePath(b.platform).isAbsolute(b.cwd) ||
+        !nativePath(b.platform).isAbsolute(b.shell) || !Array.isArray(b.shells))
       fail('execution_context_unavailable');
-    if (b.platform !== 'linux' && b.platform !== 'darwin') fail('unsupported_platform');
     return b;
   }
   allocate() {
@@ -51,8 +73,11 @@ export class ExecAdapter {
     const a = validate('exec_command', raw);
     const b = await this.binding(a.environment_id, owner);
     const shell = a.shell ?? b.shell;
-    if (!b.shells.includes(shell) || !['sh', 'bash', 'zsh'].includes(path.basename(shell))) fail('unsupported_shell');
-    const cwd = a.workdir ? path.resolve(b.cwd, a.workdir) : b.cwd;
+    if (!b.shells.includes(shell)) fail('unsupported_shell');
+    const cwd = a.workdir ? nativePath(b.platform).resolve(b.cwd, a.workdir) : b.cwd;
+    // Perform all deterministic validation before a remote mutation is possible.
+    const argv = commandArgs(b.platform,shell,a.cmd,a.login);
+    const cwdFileUri = cwdUri(cwd,b.platform);
     const id = this.allocate();
     const record = {id, owner, environment: b.id, binding: identity(b), runtime: b.runtime,
       process: randomUUID(), cursor: null, state: 'starting', queue: Promise.resolve(),
@@ -64,8 +89,8 @@ export class ExecAdapter {
       catch (e) { this.sessions.delete(id); throw e; }
       try {
         const started = await b.runtime.request('process/start', {
-          processId: record.process, argv: [shell, a.login === false ? '-c' : '-lc', a.cmd],
-          cwd: pathToFileURL(cwd).href, env: {...b.env}, tty: record.tty, pipeStdin: !record.tty,
+          processId: record.process, argv,
+          cwd: cwdFileUri, env: {...b.env}, tty: record.tty, pipeStdin: !record.tty,
           arg0: null, ...(b.sandbox ? {sandbox: b.sandbox} : {})
         });
         if (started?.processId !== record.process) { record.state = 'start_unknown'; fail('outcome_unknown', id, true); }
