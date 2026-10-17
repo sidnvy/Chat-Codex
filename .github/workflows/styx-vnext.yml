@@ -1,0 +1,37 @@
+name: Styx VNext contracts
+on:
+  push:
+    paths:
+      - 'vnext/**'
+      - '.github/workflows/styx-vnext.yml'
+  pull_request:
+    paths:
+      - 'vnext/**'
+      - '.github/workflows/styx-vnext.yml'
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: vnext
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: vnext/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install locked JavaScript deps
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Pin and verify the official Codex executor
+        run: python3 packages/styx-exec-adapter/prepare-runtime.py
+      - name: Gateway + Exec + GUI broker regression
+        run: npm run test:all
+      - name: Real executor via authenticated MCP HTTP
+        run: STYX_LIVE_EXEC_TEST=1 npm test

@@ -1,0 +1,7 @@
+node_modules/
+**/node_modules/
+**/.runtime/
+*.log
+.env
+*.token
+.DS_Store

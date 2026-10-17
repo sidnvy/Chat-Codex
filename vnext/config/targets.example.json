@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "default_environment_id": "piermini",
+  "targets": [
+    {
+      "id": "piermini",
+      "kind": "host",
+      "platform": "darwin",
+      "generation": "operator-managed-generation-1",
+      "allowed": true,
+      "cwd": "/Users/your-user",
+      "shell": "/bin/zsh",
+      "shells": ["/bin/zsh", "/bin/sh"],
+      "exec": {
+        "transport": "websocket",
+        "url": "wss://your-private-host.example:8765",
+        "token_file": "/run/secrets/styx-exec-token"
+      },
+      "gui": {"enabled": false}
+    }
+  ]
+}

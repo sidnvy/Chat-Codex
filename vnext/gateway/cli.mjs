@@ -1,0 +1,31 @@
+import fs from 'node:fs';
+import {fileURLToPath} from 'node:url';
+import {createStyxGateway} from './index.mjs';
+import {createGatewayHttp} from './http.mjs';
+
+const catalogFile = process.argv[2] || process.env.STYX_TARGETS_FILE;
+const tokenFile = process.env.STYX_MCP_TOKEN_FILE;
+if (!catalogFile || !tokenFile) {
+  process.stderr.write('Required: STYX_MCP_TOKEN_FILE and target catalog path\n');
+  process.exit(2);
+}
+const stat = fs.statSync(tokenFile);
+if (!stat.isFile() || (stat.mode & 0o077)) throw new Error('Inbound token file must be mode 0600');
+const catalog = JSON.parse(fs.readFileSync(catalogFile, 'utf8'));
+const gateway = createStyxGateway({catalog});
+const handle = await createGatewayHttp(gateway, {
+  token: fs.readFileSync(tokenFile, 'utf8').trim(),
+  host: process.env.STYX_LISTEN_HOST || '127.0.0.1',
+  port: Number(process.env.STYX_LISTEN_PORT || 8795),
+  allowedHosts: process.env.STYX_ALLOWED_HOSTS?.split(',') || undefined
+});
+process.stdout.write(JSON.stringify({status: 'listening', host: handle.address.address,
+  port: handle.address.port, path: '/mcp'}) + '\n');
+let stopping = false;
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.on(signal, () => {
+    if (stopping) return;
+    stopping = true;
+    handle.close().then(() => process.exit(0), () => process.exit(1));
+  });
+}

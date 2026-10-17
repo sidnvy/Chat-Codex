@@ -1,0 +1,85 @@
+import {createServer} from 'node:http';
+import {randomUUID, createHash, timingSafeEqual} from 'node:crypto';
+import {StreamableHTTPServerTransport} from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+
+function authorize(req, digest, hosts, origins) {
+  if (!hosts.includes(req.headers.host)) return 403;
+  if (req.headers.origin !== undefined && !origins.includes(req.headers.origin)) return 403;
+  if ((req.rawHeaders ?? []).filter((_, i) => i % 2 === 0)
+    .filter(k => k.toLowerCase() === 'authorization').length !== 1) return 401;
+  const match = /^Bearer ([A-Za-z0-9_-]{32,})$/.exec(req.headers.authorization ?? '');
+  if (!match) return 401;
+  const actual = createHash('sha256').update(match[1]).digest();
+  return timingSafeEqual(actual, digest) ? null : 401;
+}
+
+// MCP's HTTP session is the model invocation owner. A new authenticated
+// connection cannot reuse an old process or GUI element reference.
+export async function createGatewayHttp(gateway, {
+  token, host = '127.0.0.1', port = 8795, allowedHosts, allowedOrigins = [],
+  maxSessions = 32
+} = {}) {
+  if (typeof token !== 'string' || token.length < 32 || /\s/.test(token))
+    throw new Error('Strong inbound bearer required');
+  if (!Number.isInteger(port) || port < 0 || port > 65535)
+    throw new Error('Invalid listen port');
+  if (!['127.0.0.1', '::1', 'localhost'].includes(host) &&
+      (!allowedHosts || allowedHosts.length === 0))
+    throw new Error('Explicit allowed hosts required for non-loopback binding');
+  const hosts = allowedHosts ?? [host + ':' + port];
+  const digest = createHash('sha256').update(token).digest();
+  const sessions = new Map();
+  const http = createServer(async (req, res) => {
+    const refuse = (code, message) => {
+      if (!res.headersSent) { res.writeHead(code, {'content-type': 'text/plain'}); res.end(message); }
+    };
+    if (req.url !== '/mcp') return refuse(404, 'Not found');
+    const denied = authorize(req, digest, hosts, allowedOrigins);
+    if (denied) return refuse(denied, 'Forbidden');
+    if (!['POST', 'GET', 'DELETE'].includes(req.method)) return refuse(405, 'Method not allowed');
+    const sessionId = req.headers['mcp-session-id'];
+    if (Array.isArray(sessionId)) return refuse(400, 'Invalid session');
+    if (sessionId) {
+      const established = sessions.get(sessionId);
+      if (!established) return refuse(404, 'Session not found');
+      try { await established.transport.handleRequest(req, res); }
+      catch { refuse(500, 'Request failed'); }
+      return;
+    }
+    if (req.method !== 'POST') return refuse(400, 'MCP initialization required');
+    if (sessions.size >= maxSessions) return refuse(503, 'Session capacity reached');
+    const owner = 'mcp-session:' + randomUUID();
+    let sid;
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => randomUUID(),
+      onsessioninitialized: id => { sid = id; sessions.set(id, {transport, server}); }
+    });
+    const server = gateway.serverForOwner(owner);
+    transport.onclose = () => { if (sid) sessions.delete(sid); };
+    try {
+      await server.connect(transport);
+      await transport.handleRequest(req, res);
+      if (!sid) { await transport.close(); await server.close(); }
+    } catch {
+      if (sid) sessions.delete(sid);
+      await transport.close().catch(() => {});
+      await server.close().catch(() => {});
+      refuse(500, 'Initialization failed');
+    }
+  });
+  await new Promise((resolve, reject) => {
+    http.once('error', reject);
+    http.listen(port, host, resolve);
+  });
+  return {
+    address: http.address(), sessions,
+    async close() {
+      await Promise.allSettled([...sessions.values()].map(async ({server, transport}) => {
+        await transport.close(); await server.close();
+      }));
+      sessions.clear();
+      await new Promise(resolve => http.close(resolve));
+      await gateway.close();
+    }
+  };
+}
