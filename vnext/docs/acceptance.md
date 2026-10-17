@@ -14,8 +14,9 @@
 | Windows Cua MCP on user logon session | PASS read-only | native smoke init / list_apps |
 | Windows GUI screenshot / click / independent readback | BLOCKED / NOT RUN | safe scratch fixture unavailable |
 | Three-OS unattended headless CI | PENDING CI | .github/workflows/styx-vnext.yml |
-| Host Outbound WS | NOT IMPLEMENTED | next milestone |
+| Host Outbound WS (Codex Exec lane) | PASS isolated loopback with real Codex | gateway/test/outbound.test.mjs, STYX_LIVE_EXEC_TEST=1 |
 | Signed/notarized macOS product | NOT RUN | release gate |
+| Physical Host to remote Gateway WSS | NOT RUN | cross-host private-link gate |
 | Real ChatGPT -> Styx -> three host execution | NOT RUN | integration gate |
 | Browser Playwright/CDP | NOT RUN | separate component |
 | Cross-restart process durability | NOT IMPLEMENTED | fail closed |

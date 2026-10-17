@@ -1,4 +1,6 @@
 import {createServer} from 'node:http';
+import {createServer as createSecureServer} from 'node:https';
+import fs from 'node:fs';
 import {randomUUID, createHash, timingSafeEqual} from 'node:crypto';
 import {StreamableHTTPServerTransport} from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 
@@ -17,7 +19,7 @@ function authorize(req, digest, hosts, origins) {
 // connection cannot reuse an old process or GUI element reference.
 export async function createGatewayHttp(gateway, {
   token, host = '127.0.0.1', port = 8795, allowedHosts, allowedOrigins = [],
-  maxSessions = 32
+  maxSessions = 32, tlsCertificateFile, tlsPrivateKeyFile
 } = {}) {
   if (typeof token !== 'string' || token.length < 32 || /\s/.test(token))
     throw new Error('Strong inbound bearer required');
@@ -29,7 +31,9 @@ export async function createGatewayHttp(gateway, {
   const hosts = allowedHosts ?? [host + ':' + port];
   const digest = createHash('sha256').update(token).digest();
   const sessions = new Map();
-  const http = createServer(async (req, res) => {
+  if (Boolean(tlsCertificateFile) !== Boolean(tlsPrivateKeyFile))
+    throw new Error('TLS certificate and key must be supplied together');
+  const handler=async (req, res) => {
     const refuse = (code, message) => {
       if (!res.headersSent) { res.writeHead(code, {'content-type': 'text/plain'}); res.end(message); }
     };
@@ -69,7 +73,12 @@ export async function createGatewayHttp(gateway, {
       await server.close().catch(() => {});
       refuse(500, 'Initialization failed');
     }
-  });
+  };
+  const http=tlsCertificateFile
+    ? createSecureServer({cert:fs.readFileSync(tlsCertificateFile),
+        key:fs.readFileSync(tlsPrivateKeyFile)},handler)
+    : createServer(handler);
+  gateway.relay?.attach(http,{allowedHosts:hosts});
   await new Promise((resolve, reject) => {
     http.once('error', reject);
     http.listen(port, host, resolve);

@@ -24,15 +24,19 @@ export class TargetRegistry {
       'Explicit shell allowlist required');
       requireValue(typeof target.allowed === 'boolean', 'Host access decision required');
       const transport = target.exec;
-      requireValue(plain(transport) && ['websocket', 'stdio'].includes(transport.transport),
+      requireValue(plain(transport) && ['websocket', 'stdio','outbound'].includes(transport.transport),
         'Invalid executor transport');
       if (transport.transport === 'websocket') {
         requireValue(typeof transport.url === 'string' &&
           (transport.url.startsWith('ws://') || transport.url.startsWith('wss://')),
         'WebSocket URL required');
+      } else if(transport.transport==='outbound') {
+        requireValue(target.kind==='host' && typeof transport.token_file==='string' &&
+          path.isAbsolute(transport.token_file), 'Outbound Host token file required');
       } else {
-        requireValue(typeof transport.binary === 'string' && path.isAbsolute(transport.binary),
-        'Absolute local binary required');
+        requireValue(typeof transport.binary === 'string' &&
+          nativePaths(target.platform).isAbsolute(transport.binary),
+          'Absolute local binary required');
       }
       requireValue(target.env === undefined || (plain(target.env) &&
         Object.values(target.env).every(v => typeof v === 'string')), 'Invalid command environment');

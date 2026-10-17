@@ -1,0 +1,126 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import {randomInt} from 'node:crypto';
+import WebSocket from 'ws';
+import {once} from 'node:events';
+import {fileURLToPath} from 'node:url';
+import {stdioClient} from '../packages/styx-exec-adapter/rpc.mjs';
+
+function tokenFrom(filename) {
+  const stat=fs.statSync(filename);
+  if (!stat.isFile() || (process.platform!=='win32' && (stat.mode & 0o077)))
+    throw Error('host_token_permissions');
+  const value=fs.readFileSync(filename,'utf8').trim();
+  if (!/^[A-Za-z0-9_-]{32,}$/.test(value)) throw Error('invalid_host_token');
+  return value;
+}
+
+export function normalizeConnector(config) {
+  if (!config || typeof config!=='object' || Array.isArray(config)) throw Error('invalid_host_config');
+  if (typeof config.host_id!=='string' ||
+    !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(config.host_id)) throw Error('invalid_host_id');
+  const url=new URL(config.gateway_ws_url);
+  if (!['ws:','wss:'].includes(url.protocol) || url.username || url.password ||
+      url.search || url.hash || (url.protocol==='ws:' &&
+        !['localhost','127.0.0.1','[::1]'].includes(url.hostname))) {
+    throw Error('gateway_requires_tls');
+  }
+  if (url.pathname!=='/' && url.pathname!=='') throw Error('gateway_url_must_be_origin');
+  url.pathname='/styx/hosts/'+encodeURIComponent(config.host_id)+'/exec';
+  if(typeof config.token_file!=='string' || !path.isAbsolute(config.token_file))
+    throw Error('host_token_file_required');
+  const e=config.exec;
+  if(!e || typeof e!=='object' || typeof e.binary!=='string' ||
+    !path.isAbsolute(e.binary) || typeof e.cwd!=='string' || !path.isAbsolute(e.cwd))
+    throw Error('invalid_local_executor');
+  if (e.env!==undefined && (typeof e.env!=='object' || Array.isArray(e.env) ||
+      Object.values(e.env).some(x=>typeof x!=='string'))) throw Error('invalid_executor_environment');
+  return {...config, endpoint:url.href, exec:{...e}};
+}
+
+// No local listening socket. One host outbound WebSocket transports unmodified
+// Codex Exec JSON-RPC frames from a locally supervised stdio child.
+export async function connectHostOnce(config, {signal,onReady}={}) {
+  const c=normalizeConnector(config);
+  const token=tokenFrom(c.token_file);
+  if (signal?.aborted) throw Error('connector_cancelled');
+  let client,ws;
+  try {
+    client=await stdioClient({
+      binary:c.exec.binary,cwd:c.exec.cwd,
+      env:{...process.env,...(c.exec.env??{})},timeoutMs:c.exec.timeout_ms??35000
+    });
+    ws=new WebSocket(c.endpoint,{maxPayload:2*1024*1024,
+      handshakeTimeout:5000,followRedirects:false,perMessageDeflate:false,
+      headers:{Authorization:'Bearer '+token}});
+    await Promise.race([
+      once(ws,'open'),
+      new Promise((_,reject)=>signal?.addEventListener('abort',
+        ()=>reject(Error('connector_cancelled')),{once:true}))
+    ]);
+    if (signal?.aborted) throw Error('connector_cancelled');
+    const channel=client.channel;
+    let settled=false;
+    return await new Promise(resolve=>{
+      const finish=()=>{if(settled)return;settled=true;resolve()};
+      const cancel=()=>{ws.terminate();finish()};
+      signal?.addEventListener('abort',cancel,{once:true});
+      ws.on('error',finish);
+      ws.on('close',finish);
+      channel.on('closed',()=>{ws.terminate();finish()});
+      ws.on('message',(data,isBinary)=>{
+        if (isBinary || data.length>2*1024*1024) {ws.terminate();return}
+        try {channel.send(String(data))}
+        catch {ws.terminate()}
+      });
+      channel.on('message', data=>{
+        if (ws.readyState!==WebSocket.OPEN) return;
+        if (Buffer.byteLength(data)>2*1024*1024) {ws.terminate();return}
+        ws.send(String(data),{binary:false},err=>{if(err)ws.terminate()});
+      });
+      onReady?.({host_id:c.host_id});
+    });
+  } finally {
+    ws?.terminate();
+    await client?.close().catch(()=>{});
+  }
+}
+export async function runHostConnector(config,{signal,once:runOnce=false,
+  retryMinMs=500,retryMaxMs=15000,onReady,onStatus}={}) {
+  let failures=0;
+  while(!signal?.aborted) {
+    try {
+      await connectHostOnce(config,{signal,onReady});
+      failures=0;onStatus?.('disconnected');
+    } catch {
+      failures++;
+      onStatus?.('connection_failed');
+    }
+    if(runOnce) return;
+    const delay=Math.min(retryMaxMs,retryMinMs*Math.pow(2,Math.min(8,failures)))+
+      randomInt(0, Math.max(1,Math.floor(retryMinMs)));
+    await new Promise(resolve=>{
+      const timer=setTimeout(resolve,delay);
+      if(signal) signal.addEventListener('abort',()=>{clearTimeout(timer);resolve()},{once:true});
+    });
+  }
+}
+if (process.argv[1] && path.resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
+  const filename=process.argv[2];
+  if (!filename) {process.stderr.write('Usage: node host/connect.mjs /private/host.json\n');process.exit(2)}
+  let config;
+  try {
+    config=JSON.parse(fs.readFileSync(filename,'utf8'));
+    normalizeConnector(config);
+    tokenFrom(config.token_file);
+  } catch {
+    process.stderr.write('Styx Host configuration invalid.\n');process.exit(2);
+  }
+  const abort=new AbortController();
+  process.once('SIGINT',()=>abort.abort());
+  process.once('SIGTERM',()=>abort.abort());
+  await runHostConnector(config,{signal:abort.signal,
+    onStatus:status=>process.stdout.write(JSON.stringify({host:config.host_id,status})+'\n'),
+    onReady:info=>process.stdout.write(JSON.stringify({...info,status:'connected'})+'\n')
+  });
+}

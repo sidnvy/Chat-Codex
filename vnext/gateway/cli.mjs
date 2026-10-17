@@ -17,7 +17,9 @@ const handle = await createGatewayHttp(gateway, {
   token: fs.readFileSync(tokenFile, 'utf8').trim(),
   host: process.env.STYX_LISTEN_HOST || '127.0.0.1',
   port: Number(process.env.STYX_LISTEN_PORT || 8795),
-  allowedHosts: process.env.STYX_ALLOWED_HOSTS?.split(',') || undefined
+  allowedHosts: process.env.STYX_ALLOWED_HOSTS?.split(',') || undefined,
+  tlsCertificateFile: process.env.STYX_TLS_CERT_FILE || undefined,
+  tlsPrivateKeyFile: process.env.STYX_TLS_KEY_FILE || undefined
 });
 process.stdout.write(JSON.stringify({status: 'listening', host: handle.address.address,
   port: handle.address.port, path: '/mcp'}) + '\n');

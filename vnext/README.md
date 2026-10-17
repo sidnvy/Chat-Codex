@@ -84,3 +84,24 @@ Unattended native tests create only owned scratch GUI windows. If session,
 permission, driver, or fixture is unavailable the outcome is BLOCKED, not PASS.
 Production deployment, OS permission changes, Tunnel changes, Coder/Charon
 migration and access to personal applications are explicitly excluded.
+
+
+## Outbound Host execution (implemented in preview)
+
+The Gateway now accepts one authenticated Host-originated WebSocket per
+admitted Host ID. The connector supervises a local pinned Codex Exec
+Server over stdio and forwards its native JSON-RPC byte frames with no
+secondary execution protocol. The Host needs no inbound port or Coder.
+
+The model tools remain exec_command / write_stdin with environment_id.
+Use host/config.example.json, host/prepare-codex.py, host/doctor.mjs and
+host/connect.mjs for isolated bootstrap, then configure a Gateway target
+with exec.transport set to outbound and a strong per-Host token_file.
+
+Actual Codex process, PTY, input and disconnect/reconnect tests run via
+the authenticated Gateway MCP and Host connector in separate OS processes.
+TLS/WSS termination supports an operator-supplied private certificate.
+Native Cua-outbound access is not part of this milestone: the existing
+separate private Cua MCP connection remains necessary.
+
+See docs/outbound-host.md. No production rollouts occurred.

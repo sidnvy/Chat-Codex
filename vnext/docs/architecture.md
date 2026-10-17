@@ -53,8 +53,26 @@ constitute proof of desired application state without independent readback.
 
 ## Still open
 
-True Host Outbound WebSocket; independent Host bootstrap and package
-distribution; Windows GUI action/readback; signed/notarized macOS app;
+Native Host outbound WebSocket for Codex Exec now works in isolated tests.
+Remaining: full Host fleet bootstrap and signed distribution;
+Windows GUI action/readback; signed/notarized macOS app;
 real ChatGPT MCP registration; long-process recovery; optional browser
 provider. These are release gates, not claims of passing tests.
 Production Styx, Charon, Coder, and Tunnel are untouched.
+
+
+## Outbound Host transport VNext milestone
+
+Styx Gateway registers pre-admitted Host IDs and independently held Host
+tokens. A Host connector makes a single outbound authenticated WebSocket
+connection to the Gateway, then forwards unmodified Codex Exec JSON-RPC
+between that socket and one supervised local Codex Exec Server stdio child.
+
+The Gateway owns connection/session identity; Host-side Codex owns the
+processes. A broken connection terminates that bridge and loses old process
+identity without automatic replay. Host connector retries new connections
+with bounded backoff, but a new connection always creates a new Exec
+session. See docs/outbound-host.md.
+
+Cua is NOT tunneled by this first milestone; it remains a separate native
+MCP transport, independently authenticated and bound to the GUI session.

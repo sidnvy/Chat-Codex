@@ -4,14 +4,24 @@ import {ExecConnection, stdioClient, websocketClient} from '../packages/styx-exe
 // Runtime sessions are independent of MCP HTTP requests. No implicit restart or
 // replay when a connection is lost: the original process may have mutated state.
 export class RuntimePool {
-  constructor(registry, {connect} = {}) {
+  constructor(registry, {connect,relay} = {}) {
     this.registry = registry;
-    this.connect = connect ?? createConnection;
+    this.connect = connect ?? (target=>createConnection(target,{relay}));
     this.pending = new Map();
   }
   async get(target) {
     const key = target.id + ':' + target.generation;
     let promise = this.pending.get(key);
+    if(promise) {
+      const existing=await promise;
+      if(!existing.lost && !existing.client?.closed) return existing;
+      // A lost executor session is never resumed implicitly. A new command
+      // may use a freshly authenticated outbound Host connection; old process
+      // handles remain invalid.
+      existing.lost=true;
+      if(this.pending.get(key)===promise) this.pending.delete(key);
+      return this.get(target);
+    }
     if (!promise) {
       promise = this.connect(target).then(async runtime => {
         if (!runtime.sessionId) await runtime.initialize();
@@ -37,8 +47,12 @@ export class RuntimePool {
     await Promise.allSettled(all.map(async p => (await p).close()));
   }
 }
-async function createConnection(target) {
+async function createConnection(target,{relay}={}) {
   const t = target.exec;
+  if(t.transport === 'outbound') {
+    if(!relay) throw Error('outbound_relay_not_attached');
+    return new ExecConnection(()=>relay.acquire(target));
+  }
   if (t.transport === 'stdio') {
     const home = t.home ?? process.env.HOME;
     return new ExecConnection(() => stdioClient({
