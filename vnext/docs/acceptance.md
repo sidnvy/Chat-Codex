@@ -16,7 +16,7 @@
 | Three-OS unattended headless CI | PENDING CI | .github/workflows/styx-vnext.yml |
 | Host Outbound WS (Codex Exec lane) | PASS isolated loopback with real Codex | gateway/test/outbound.test.mjs, STYX_LIVE_EXEC_TEST=1 |
 | Signed/notarized macOS product | NOT RUN | release gate |
-| Physical Host to remote Gateway WSS | NOT RUN | cross-host private-link gate |
+| Physical macOS Host to separate Gateway via private-network WSS/mTLS | PASS bounded native pilot | Real Codex 0.163.0: Shell, stdin, PTY, stdout/exit validation; 2026-10-18 |
 | Real ChatGPT -> Styx -> three host execution | NOT RUN | integration gate |
 | Browser Playwright/CDP | NOT RUN | separate component |
 | Cross-restart process durability | NOT IMPLEMENTED | fail closed |

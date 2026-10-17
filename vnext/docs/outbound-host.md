@@ -105,3 +105,21 @@ WS fails closed. The model-facing MCP endpoint retains separate bearer auth.
 For a private pilot, use short-lived test-only certificates. A production
 installer needs a key rotation, credential lifecycle and revocation design.
 Never disable TLS server verification or publish pilot private keys.
+
+
+## Physical cross-host acceptance — 2026-10-18
+
+A native macOS Host connected outward over a private VPN to a Styx Gateway
+running on a different Linux machine. The Gateway verified the Host's pinned
+mTLS client certificate. A separately authenticated MCP client then executed
+a real Codex Exec Server 0.163.0 on macOS through that connection.
+
+Observed PASS: Codex-shaped exec_command, Darwin OS identification, stdout
+marker, interactive write_stdin / ACK, and true PTY. No Coder execution
+protocol, local AI agent, or SSH execution path was involved. The tests used
+scratch directories and temporary WSS services only.
+
+This demonstrates remote Exec routing, not native Cua GUI-over-outbound,
+long-task durability, or a production deployment. The temporary Gateway
+listener was stopped after testing. No user-specific IPs, Host credentials or
+private certificates are recorded in the repository.
