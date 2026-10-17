@@ -27,12 +27,21 @@ export async function doctor(config,{platform=process.platform}={}) {
   catch {checks.configuration='invalid';blockers.push('invalid_host_configuration')}
   if (normalized) {
     checks.host_id=normalized.host_id;
-    const tokenFile=normalized.token_file;
     try {
-      const stat=fs.statSync(tokenFile);
-      const token=fs.readFileSync(tokenFile,'utf8').trim();
-      if (!stat.isFile() || (platform!=='win32' && (stat.mode & 0o077)) ||
-        !/^[A-Za-z0-9_-]{32,}$/.test(token)) throw Error();
+      if(normalized.token_file) {
+        const stat=fs.statSync(normalized.token_file);
+        const token=fs.readFileSync(normalized.token_file,'utf8').trim();
+        if (!stat.isFile() || (platform!=='win32' && (stat.mode & 0o077)) ||
+          !/^[A-Za-z0-9_-]{32,}$/.test(token)) throw Error();
+      } else {
+        const cert=fs.readFileSync(normalized.client_cert_file,'utf8');
+        const stat=fs.statSync(normalized.client_key_file);
+        if (!stat.isFile() || (platform!=='win32' && (stat.mode & 0o077)) ||
+          !cert.includes('BEGIN CERTIFICATE') ||
+          !fs.readFileSync(normalized.client_key_file,'utf8').includes('BEGIN PRIVATE KEY'))
+          throw Error();
+      }
+      if(normalized.gateway_ca_file) fs.readFileSync(normalized.gateway_ca_file);
       checks.host_credential='ok';
     } catch {checks.host_credential='blocked';blockers.push('host_credential_unavailable')}
     try {

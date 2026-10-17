@@ -27,8 +27,20 @@ export function normalizeConnector(config) {
   }
   if (url.pathname!=='/' && url.pathname!=='') throw Error('gateway_url_must_be_origin');
   url.pathname='/styx/hosts/'+encodeURIComponent(config.host_id)+'/exec';
-  if(typeof config.token_file!=='string' || !path.isAbsolute(config.token_file))
-    throw Error('host_token_file_required');
+  const hasBearer=typeof config.token_file==='string' &&
+    path.isAbsolute(config.token_file);
+  const hasMtls=typeof config.client_cert_file==='string' &&
+    path.isAbsolute(config.client_cert_file) &&
+    typeof config.client_key_file==='string' &&
+    path.isAbsolute(config.client_key_file);
+  if(hasBearer===hasMtls || (config.token_file!==undefined && !hasBearer) ||
+    (config.client_cert_file!==undefined && !hasMtls) ||
+    (config.client_key_file!==undefined && !hasMtls))
+    throw Error('exactly_one_host_auth_required');
+  if(hasMtls && url.protocol!=='wss:') throw Error('mtls_requires_wss');
+  if(config.gateway_ca_file!==undefined &&
+    (typeof config.gateway_ca_file!=='string' || !path.isAbsolute(config.gateway_ca_file)))
+    throw Error('invalid_gateway_ca_file');
   const e=config.exec;
   if(!e || typeof e!=='object' || typeof e.binary!=='string' ||
     !path.isAbsolute(e.binary) || typeof e.cwd!=='string' || !path.isAbsolute(e.cwd))
@@ -42,7 +54,17 @@ export function normalizeConnector(config) {
 // Codex Exec JSON-RPC frames from a locally supervised stdio child.
 export async function connectHostOnce(config, {signal,onReady}={}) {
   const c=normalizeConnector(config);
-  const token=tokenFrom(c.token_file);
+  const token=c.token_file ? tokenFrom(c.token_file) : undefined;
+  let clientCert,clientKey,gatewayCa;
+  if(c.client_cert_file){
+    clientCert=fs.readFileSync(c.client_cert_file);
+    const privateKeyStat=fs.statSync(c.client_key_file);
+    if(!privateKeyStat.isFile() ||
+      (process.platform!=='win32' && (privateKeyStat.mode & 0o077)))
+      throw Error('client_key_permissions');
+    clientKey=fs.readFileSync(c.client_key_file);
+  }
+  if(c.gateway_ca_file) gatewayCa=fs.readFileSync(c.gateway_ca_file);
   if (signal?.aborted) throw Error('connector_cancelled');
   let client,ws;
   try {
@@ -52,7 +74,9 @@ export async function connectHostOnce(config, {signal,onReady}={}) {
     });
     ws=new WebSocket(c.endpoint,{maxPayload:2*1024*1024,
       handshakeTimeout:5000,followRedirects:false,perMessageDeflate:false,
-      headers:{Authorization:'Bearer '+token}});
+      ...(token?{headers:{Authorization:'Bearer '+token}}:{}),
+      ...(clientCert?{cert:clientCert,key:clientKey}:{}),
+      ...(gatewayCa?{ca:gatewayCa}:{})});
     await Promise.race([
       once(ws,'open'),
       new Promise((_,reject)=>signal?.addEventListener('abort',
@@ -112,7 +136,14 @@ if (process.argv[1] && path.resolve(process.argv[1])===fileURLToPath(import.meta
   try {
     config=JSON.parse(fs.readFileSync(filename,'utf8'));
     normalizeConnector(config);
-    tokenFrom(config.token_file);
+    if(config.token_file) tokenFrom(config.token_file);
+    if(config.client_cert_file) {
+      fs.readFileSync(config.client_cert_file);
+      const keyStat=fs.statSync(config.client_key_file);
+      if(!keyStat.isFile() ||
+        (process.platform!=='win32' && (keyStat.mode & 0o077)))
+        throw Error('client_key_permissions');
+    }
   } catch {
     process.stderr.write('Styx Host configuration invalid.\n');process.exit(2);
   }

@@ -51,16 +51,29 @@ export class OutboundHostRelay {
       if (this.stopped || target.kind!=='host' || target.exec?.transport!=='outbound') {
         reject(socket,403);return;
       }
-      if (req.headers.origin!==undefined || bearerCount(req)!==1) {
-        reject(socket,401);return;
+      if (req.headers.origin!==undefined) {reject(socket,401);return}
+      if (target.exec.client_certificate_sha256) {
+        // The HTTPS server must request client certificates. A valid pinned
+        // public certificate replaces a shared Host bearer; private keys stay
+        // on their own hosts. Never accept an unencrypted peer as mTLS.
+        const cert=req.socket.getPeerCertificate?.(true);
+        const fingerprint=cert?.raw &&
+          createHash('sha256').update(cert.raw).digest();
+        const expected=Buffer.from(target.exec.client_certificate_sha256,'hex');
+        if (!req.socket.encrypted || !fingerprint ||
+            fingerprint.length!==expected.length ||
+            !timingSafeEqual(fingerprint,expected) ||
+            bearerCount(req)!==0) {reject(socket,401);return}
+      } else {
+        if(bearerCount(req)!==1) {reject(socket,401);return}
+        const matchBearer=TOKEN.exec(req.headers.authorization??'');
+        if (!matchBearer) {reject(socket,401);return}
+        let digest;
+        try {digest=readToken(target.exec.token_file);}
+        catch {reject(socket,403);return}
+        const supplied=createHash('sha256').update(matchBearer[1]).digest();
+        if (!timingSafeEqual(digest,supplied)) {reject(socket,401);return}
       }
-      const matchBearer=TOKEN.exec(req.headers.authorization??'');
-      if (!matchBearer) {reject(socket,401);return}
-      let digest;
-      try {digest=readToken(target.exec.token_file);}
-      catch {reject(socket,403);return}
-      const supplied=createHash('sha256').update(matchBearer[1]).digest();
-      if (!timingSafeEqual(digest,supplied)) {reject(socket,401);return}
       if (this.sessions.has(hostId)) {reject(socket,409);return}
       // Reserve identity synchronously before handling the upgrade.
       const entry={id:hostId,generation:target.generation,ws:null,closed:false,

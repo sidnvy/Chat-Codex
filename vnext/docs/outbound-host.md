@@ -86,3 +86,22 @@ is included. Existing production Charon, Coder, Tunnel and Styx remain unchanged
 
 Match the TLS certificate SAN to the configured private Host URL. Do not
 expose a test Gateway to the public Internet without deployment hardening.
+
+
+## Optional mTLS Host identity (no shared bearer token)
+
+For unattended Host pairing without copying a symmetric secret, Styx accepts
+a certificate-pinned Host over WSS. Each Host retains its own TLS client
+private key; only the public certificate SHA-256 is registered with Gateway.
+
+In Gateway target config use client_certificate_sha256 (64 lowercase hex
+characters) INSTEAD of token_file. On the Host use client_cert_file,
+client_key_file and optional gateway_ca_file; omit token_file entirely.
+Gateway HTTPS requests client certificates; on the Host WebSocket upgrade the
+exact SHA-256 of the presented DER public certificate must match the trusted
+target registry entry. No certificate, an untrusted certificate or plaintext
+WS fails closed. The model-facing MCP endpoint retains separate bearer auth.
+
+For a private pilot, use short-lived test-only certificates. A production
+installer needs a key rotation, credential lifecycle and revocation design.
+Never disable TLS server verification or publish pilot private keys.

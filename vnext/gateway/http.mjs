@@ -76,7 +76,8 @@ export async function createGatewayHttp(gateway, {
   };
   const http=tlsCertificateFile
     ? createSecureServer({cert:fs.readFileSync(tlsCertificateFile),
-        key:fs.readFileSync(tlsPrivateKeyFile)},handler)
+        key:fs.readFileSync(tlsPrivateKeyFile),
+        requestCert:true,rejectUnauthorized:false},handler)
     : createServer(handler);
   gateway.relay?.attach(http,{allowedHosts:hosts});
   await new Promise((resolve, reject) => {

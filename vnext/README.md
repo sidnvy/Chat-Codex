@@ -105,3 +105,5 @@ Native Cua-outbound access is not part of this milestone: the existing
 separate private Cua MCP connection remains necessary.
 
 See docs/outbound-host.md. No production rollouts occurred.
+
+Outbound Host identity can use either a private bearer token or certificate-pinned WSS mTLS. See docs/outbound-host.md.

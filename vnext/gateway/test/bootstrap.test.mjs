@@ -15,10 +15,10 @@ test('catalog admits only an explicit trusted outbound Host',()=>{
   const r=new TargetRegistry({version:1,default_environment_id:'mac',targets:[base]});
   assert.equal(r.resolve().exec.transport,'outbound');
   assert.throws(()=>new TargetRegistry({version:1,targets:[{...base,kind:'environment'}]}),
-    /Outbound Host token/);
+    /outbound Host authentication/);
   assert.throws(()=>new TargetRegistry({version:1,targets:[{
     ...base,exec:{transport:'outbound',token_file:'relative'}
-  }]}),/Outbound Host token/);
+  }]}),/outbound Host authentication/);
 });
 test('Host bootstrap doctor validates token and Codex binary without deployment',async t=>{
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'styx-host-doctor-'));
@@ -37,4 +37,23 @@ test('Host bootstrap doctor validates token and Codex binary without deployment'
   await fs.chmod(token,0o644);
   const broken=await doctor(config);
   assert.ok(broken.blockers.includes('host_credential_unavailable'));
+});
+
+test('mTLS certificate pin is an alternate Host identity, never bearer fallback',()=>{
+  const pin='ab'.repeat(32);
+  const base={id:'pinned',kind:'host',platform:'darwin',generation:'mtls-1',
+    cwd:'/tmp',shell:'/bin/sh',shells:['/bin/sh'],allowed:true,
+    exec:{transport:'outbound',client_certificate_sha256:pin}};
+  const c={version:1,default_environment_id:'pinned',targets:[base]};
+  assert.equal(new TargetRegistry(c).resolve().exec.client_certificate_sha256,pin);
+  assert.throws(()=>new TargetRegistry({...c,targets:[{
+    ...base,exec:{...base.exec,token_file:'/tmp/old-token'}
+  }]}),/outbound Host authentication/);
+  assert.throws(()=>new TargetRegistry({...c,targets:[{
+    ...base,exec:{transport:'outbound',client_certificate_sha256:'not-sha256'}
+  }]}),/outbound Host authentication/);
+  const {client_certificate_sha256,...authRemoved}=base.exec;
+  assert.throws(()=>new TargetRegistry({...c,targets:[{
+    ...base,exec:authRemoved
+  }]}),/outbound Host authentication/);
 });

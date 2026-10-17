@@ -31,8 +31,14 @@ export class TargetRegistry {
           (transport.url.startsWith('ws://') || transport.url.startsWith('wss://')),
         'WebSocket URL required');
       } else if(transport.transport==='outbound') {
-        requireValue(target.kind==='host' && typeof transport.token_file==='string' &&
-          path.isAbsolute(transport.token_file), 'Outbound Host token file required');
+        const bearer = typeof transport.token_file==='string' &&
+          path.isAbsolute(transport.token_file);
+        const mtls = typeof transport.client_certificate_sha256==='string' &&
+          /^[a-f0-9]{64}$/.test(transport.client_certificate_sha256);
+        requireValue(target.kind==='host' && bearer!==mtls &&
+          (transport.token_file === undefined || bearer) &&
+          (transport.client_certificate_sha256===undefined || mtls),
+          'Exactly one outbound Host authentication required');
       } else {
         requireValue(typeof transport.binary === 'string' &&
           nativePaths(target.platform).isAbsolute(transport.binary),
