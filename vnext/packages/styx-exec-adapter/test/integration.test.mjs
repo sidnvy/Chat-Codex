@@ -217,3 +217,15 @@ test('MCP client -> isolated gateway -> adapter -> actual Exec Server', async t 
   }
   assert.equal(r.exit_code, 0); assert.equal(output, 'mcp:hello');
 });
+
+test('stdio: real Codex interleaves terminal and output sequences without invalid response', async t => {
+  const {a} = await stdio(t);
+  for (let i = 0; i < 18; i++) {
+    const r = await complete(a, await a.execCommand({
+      cmd: 'printf out; printf err >&2; exit 7', login: false, yield_time_ms: 250
+    }, owner));
+    assert.equal(r.exit_code, 7);
+    assert.match(r.output, /out/);
+    assert.match(r.output, /err/);
+  }
+});

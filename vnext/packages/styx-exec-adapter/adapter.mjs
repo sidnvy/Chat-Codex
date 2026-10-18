@@ -81,7 +81,8 @@ export class ExecAdapter {
     const id = this.allocate();
     const record = {id, owner, environment: b.id, binding: identity(b), runtime: b.runtime,
       process: randomUUID(), cursor: null, state: 'starting', queue: Promise.resolve(),
-      decoders: new Map(), uncertainInput: false, tty: a.tty ?? false};
+      decoders: new Map(), terminalSeqSlots: 0,
+      uncertainInput: false, tty: a.tty ?? false};
     this.sessions.set(id, record);
     return this.serial(record, async () => {
       const began = performance.now();
@@ -192,22 +193,31 @@ export class ExecAdapter {
         reply.nextSeq < 1 || (r.cursor !== null && reply.nextSeq < r.cursor + 1) ||
         (reply.exited && !Number.isSafeInteger(reply.exitCode))) invalid();
     let previous = r.cursor === null ? 0 : r.cursor;
+    let terminalSeqSlots = r.terminalSeqSlots ?? 0;
     const decoded = [];
-    // Validate the entire response before advancing cursors or decoder state.
+    // Codex numbers process/exited and process/closed in the SAME sequence
+    // stream as stdout/stderr/PTY output. Those terminal events are not
+    // included in process/read.chunks, so valid output seq values need not be
+    // contiguous. Never treat more gaps as legitimate than the terminal
+    // events that the response independently confirms.
     for (const c of reply.chunks) {
-      if (!Number.isSafeInteger(c.seq) || c.seq !== previous + 1 || c.seq >= reply.nextSeq ||
+      if (!Number.isSafeInteger(c.seq) || c.seq <= previous || c.seq >= reply.nextSeq ||
           !['stdout', 'stderr', 'pty'].includes(c.stream) || typeof c.chunk !== 'string') invalid();
       const b = Buffer.from(c.chunk, 'base64');
       if (b.toString('base64') !== c.chunk) invalid();
+      terminalSeqSlots += c.seq - previous - 1;
       previous = c.seq;
     }
-    // nextSeq is the next sequence to be produced, while afterSeq is the last consumed.
+    terminalSeqSlots += reply.nextSeq - 1 - previous;
+    if (terminalSeqSlots > Number(reply.exited) + Number(reply.closed)) invalid();
+    // Validate the full response before advancing cursors or decoder state.
     for (const c of reply.chunks) {
       let decoder = r.decoders.get(c.stream);
       if (!decoder) { decoder = new StringDecoder('utf8'); r.decoders.set(c.stream, decoder); }
       decoded.push(decoder.write(Buffer.from(c.chunk, 'base64')));
     }
     r.cursor = reply.nextSeq - 1;
+    r.terminalSeqSlots = terminalSeqSlots;
     return decoded;
   }
   async cleanup() {

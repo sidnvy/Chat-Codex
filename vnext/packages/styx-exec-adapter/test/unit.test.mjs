@@ -256,3 +256,45 @@ test('a connection cannot initialize twice or replace its server session silentl
   await c.initialize();
   await assert.rejects(c.initialize(), /connection_busy/);
 });
+
+test('Codex terminal event sequence slots may separate valid stdout and stderr chunks', async () => {
+  const f = fixture();
+  const initial = await f.start();
+  const original = f.runtime.request.bind(f.runtime);
+  let reads = 0;
+  f.runtime.request = async (method, params) => {
+    if (method !== 'process/read') return original(method, params);
+    reads++;
+    if (reads === 1) return {
+      chunks: [
+        {seq: 1, stream: 'stdout', chunk: Buffer.from('out').toString('base64')},
+        {seq: 3, stream: 'stderr', chunk: Buffer.from('err').toString('base64')}
+      ],
+      nextSeq: 5, exited: true, closed: true, exitCode: 7, failure: null
+    };
+    return {chunks: [], nextSeq: 5, exited: true, closed: true,
+      exitCode: 7, failure: null};
+  };
+  const result = await f.adapter.writeStdin({
+    session_id: initial.session_id, yield_time_ms: 200
+  }, owner);
+  assert.equal(result.output, 'outerr');
+  assert.equal(result.exit_code, 7);
+});
+
+test('genuine output gaps exceeding proven terminal event slots remain rejected', async () => {
+  const f = fixture();
+  const initial = await f.start();
+  const original = f.runtime.request.bind(f.runtime);
+  f.runtime.request = async (method, params) => {
+    if (method !== 'process/read') return original(method, params);
+    return {
+      chunks: [{seq: 5, stream: 'stdout', chunk: 'eA=='}],
+      nextSeq: 6, exited: true, closed: true, exitCode: 7, failure: null
+    };
+  };
+  await assert.rejects(
+    f.adapter.writeStdin({session_id: initial.session_id, yield_time_ms: 0}, owner),
+    /invalid_executor_response/
+  );
+});
